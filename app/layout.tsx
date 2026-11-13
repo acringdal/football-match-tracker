@@ -1,27 +1,21 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Football Match Tracker",
-  description: "Follow your favourite teams across football tournaments",
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="en">
-      <body
-        style={{
-          margin: 0,
-          fontFamily: "Arial, Helvetica, sans-serif",
-          background: "#f5f6f8",
-          color: "#17202a",
-        }}
-      >
-        {children}
-      </body>
-    </html>
-  );
+{
+  "name": "football-match-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "16.0.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
 }
