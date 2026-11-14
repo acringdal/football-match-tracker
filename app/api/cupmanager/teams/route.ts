@@ -20,7 +20,7 @@ export async function GET() {
       ok: response.ok,
       cupManagerStatus: response.status,
       contentType: response.headers.get("content-type"),
-      preview: body.slice(0, 1000),
+      preview: body.slice(0, 20000),
     });
   } catch (error) {
     return NextResponse.json(
