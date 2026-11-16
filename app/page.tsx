@@ -1,42 +1,83 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Team = {
-  id: string;
+  id: number;
   name: string;
-  gender: "Girls" | "Boys";
-  age: number;
+  fullName: string | null;
+  categoryName: string | null;
+  suffix: string | null;
 };
 
-const teams: Team[] = [
-  { id: "89302537", name: "Sandviken, IL RØD", gender: "Girls", age: 14 },
-  { id: "demo-blue", name: "Sandviken/Varegg BLÅ", gender: "Girls", age: 14 },
-  { id: "demo-1", name: "Bjarg", gender: "Girls", age: 14 },
-  { id: "demo-2", name: "Fana", gender: "Girls", age: 14 },
-  { id: "demo-3", name: "Varegg", gender: "Boys", age: 14 },
-  { id: "demo-4", name: "Åsane", gender: "Girls", age: 15 },
-];
+type TeamsResponse = {
+  ok: boolean;
+  tournament: string;
+  category: {
+    id: number;
+    gender: string;
+    age: number;
+  };
+  count: number;
+  teams: Team[];
+};
 
 export default function Home() {
-  const [showTeamPicker, setShowTeamPicker] = useState(false);
-  const [gender, setGender] = useState<"All" | "Girls" | "Boys">("All");
-  const [age, setAge] = useState<number | "All">("All");
-  const [search, setSearch] = useState("");
+  const [teams, setTeams] = useState<Team[]>([]);
   const [favourites, setFavourites] = useState<Team[]>([]);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadTeams() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch("/api/cupmanager/teams", {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Could not load teams");
+        }
+
+        const data: TeamsResponse = await response.json();
+
+        setTeams(data.teams);
+      } catch {
+        setError("Could not load teams from Fotballfest.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadTeams();
+  }, []);
 
   const filteredTeams = useMemo(() => {
     const text = search.trim().toLowerCase();
 
-    return teams.filter((team) => {
-      const genderMatch = gender === "All" || team.gender === gender;
-      const ageMatch = age === "All" || team.age === age;
-      const textMatch =
-        text === "" || team.name.toLowerCase().includes(text);
+    if (!text) {
+      return teams;
+    }
 
-      return genderMatch && ageMatch && textMatch;
+    return teams.filter((team) => {
+      const searchableText = [
+        team.name,
+        team.fullName,
+        team.categoryName,
+        team.suffix,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(text);
     });
-  }, [gender, age, search]);
+  }, [teams, search]);
 
   function addFavourite(team: Team) {
     setFavourites((current) => {
@@ -51,7 +92,7 @@ export default function Home() {
     setSearch("");
   }
 
-  function removeFavourite(teamId: string) {
+  function removeFavourite(teamId: number) {
     setFavourites((current) =>
       current.filter((team) => team.id !== teamId)
     );
@@ -130,15 +171,18 @@ export default function Home() {
             >
               <div>
                 <strong>{team.name}</strong>
-                <div
-                  style={{
-                    marginTop: "4px",
-                    fontSize: "14px",
-                    color: "#68707c",
-                  }}
-                >
-                  {team.gender} · {team.age}
-                </div>
+
+                {team.categoryName && (
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      fontSize: "14px",
+                      color: "#68707c",
+                    }}
+                  >
+                    {team.categoryName}
+                  </div>
+                )}
               </div>
 
               <button
@@ -174,7 +218,9 @@ export default function Home() {
               alignItems: "center",
             }}
           >
-            <h2 style={{ margin: 0, fontSize: "20px" }}>Add team</h2>
+            <h2 style={{ margin: 0, fontSize: "20px" }}>
+              Add team
+            </h2>
 
             <button
               type="button"
@@ -190,75 +236,23 @@ export default function Home() {
             </button>
           </div>
 
-          <p style={{ color: "#68707c" }}>Fotballfest 2026</p>
+          <p style={{ color: "#68707c" }}>
+            Fotballfest 2026 · Girls · 14
+          </p>
 
-          <strong>Gender</strong>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "8px",
-              marginTop: "8px",
-              marginBottom: "18px",
-            }}
+          <label
+            htmlFor="team-search"
+            style={{ fontWeight: 600 }}
           >
-            {(["All", "Girls", "Boys"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setGender(option)}
-                style={{
-                  flex: 1,
-                  padding: "10px",
-                  borderRadius: "8px",
-                  border:
-                    gender === option
-                      ? "2px solid #166534"
-                      : "1px solid #d0d5dd",
-                  background:
-                    gender === option ? "#ecfdf3" : "white",
-                }}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-
-          <strong>Age</strong>
-
-          <select
-            value={age}
-            onChange={(event) =>
-              setAge(
-                event.target.value === "All"
-                  ? "All"
-                  : Number(event.target.value)
-              )
-            }
-            style={{
-              width: "100%",
-              marginTop: "8px",
-              marginBottom: "18px",
-              padding: "12px",
-              borderRadius: "8px",
-              border: "1px solid #d0d5dd",
-              fontSize: "16px",
-            }}
-          >
-            <option value="All">All ages</option>
-            {[10, 11, 12, 13, 14, 15, 16, 17, 18].map((number) => (
-              <option key={number} value={number}>
-                {number}
-              </option>
-            ))}
-          </select>
-
-          <strong>Team</strong>
+            Team
+          </label>
 
           <input
+            id="team-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search team..."
+            autoComplete="off"
             style={{
               width: "100%",
               boxSizing: "border-box",
@@ -271,40 +265,20 @@ export default function Home() {
           />
 
           <div style={{ marginTop: "12px" }}>
-            {filteredTeams.map((team) => (
-              <button
-                key={team.id}
-                type="button"
-                onClick={() => addFavourite(team)}
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "13px 4px",
-                  border: 0,
-                  borderBottom: "1px solid #eaecf0",
-                  background: "white",
-                }}
-              >
-                <strong>{team.name}</strong>
-
-                <div
-                  style={{
-                    marginTop: "3px",
-                    color: "#68707c",
-                    fontSize: "13px",
-                  }}
-                >
-                  {team.gender} · {team.age}
-                </div>
-              </button>
-            ))}
-
-            {filteredTeams.length === 0 && (
-              <p style={{ color: "#68707c" }}>No matching teams.</p>
+            {loading && (
+              <p style={{ color: "#68707c" }}>
+                Loading Fotballfest teams...
+              </p>
             )}
-          </div>
-        </section>
-      )}
-    </main>
-  );
-}
+
+            {error && (
+              <p style={{ color: "#b42318" }}>{error}</p>
+            )}
+
+            {!loading &&
+              !error &&
+              filteredTeams.map((team) => (
+                <button
+                  key={team.id}
+                  type="button"
+               
