@@ -8,6 +8,7 @@ type CupManagerResponse = {
     string,
     {
       entity?: {
+        __typename?: string;
         id?: number;
         originalName?: string;
         shortName?: string;
@@ -46,4 +47,101 @@ export async function GET() {
     if (!response.ok) {
       return NextResponse.json(
         {
-          error: "CupManager 
+          error: "CupManager request failed",
+          cupManagerStatus: response.status,
+        },
+        { status: 502 }
+      );
+    }
+
+    let data: CupManagerResponse;
+
+    try {
+      data = JSON.parse(body) as CupManagerResponse;
+    } catch {
+      return NextResponse.json(
+        {
+          error: "CupManager response could not be parsed",
+          contentType: response.headers.get("content-type"),
+          preview: body.slice(0, 500),
+        },
+        { status: 502 }
+      );
+    }
+
+    const responses = data.responses ?? {};
+
+    const teams: Team[] = Object.entries(responses)
+      .filter(([key, value]) => {
+        return (
+          key.startsWith("Team({id:") &&
+          value?.entity?.__typename === "Team"
+        );
+      })
+      .map(([key, value]) => {
+        const entity = value.entity ?? {};
+        const name = entity.name ?? {};
+
+        const idFromKey = key.match(
+          /Team\(\{id:(\d+)\}\)/
+        )?.[1];
+
+        const id =
+          typeof entity.id === "number"
+            ? entity.id
+            : idFromKey
+              ? Number(idFromKey)
+              : null;
+
+        const teamName =
+          name.clubName ??
+          name.fullName ??
+          entity.originalName ??
+          entity.shortName ??
+          null;
+
+        if (id === null || teamName === null) {
+          return null;
+        }
+
+        return {
+          id,
+          name: teamName,
+          fullName: name.fullName ?? null,
+          categoryName: name.categoryName ?? null,
+          suffix: name.suffix ?? null,
+        };
+      })
+      .filter((team): team is Team => team !== null);
+
+    const uniqueTeams = Array.from(
+      new Map(
+        teams.map((team) => [team.id, team])
+      ).values()
+    ).sort((a, b) => a.name.localeCompare(b.name, "nb"));
+
+    return NextResponse.json({
+      ok: true,
+      tournament: "Fotballfest 2026",
+      tournamentId: 75678338,
+      category: {
+        id: 75678349,
+        gender: "Girls",
+        age: 14,
+      },
+      stageId: 75678335,
+      count: uniqueTeams.length,
+      teams: uniqueTeams,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown CupManager error",
+      },
+      { status: 500 }
+    );
+  }
+}
