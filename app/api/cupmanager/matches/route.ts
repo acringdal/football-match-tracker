@@ -5,50 +5,30 @@ const TOURNAMENT_ID = 75678338;
 const BASE_URL =
   "https://fotballfest.cupmanager.net/rest/results_api/call";
 
-type RecordValue = Record<string, unknown>;
+type ResponseItem = {
+  entity?: {
+    __typename?: string;
+    id?: number;
+    start?: number;
+    end?: number;
+    duration?: number;
+    live?: boolean;
+    finished?: boolean;
+  };
+};
 
-function isRecord(value: unknown): value is RecordValue {
-  return typeof value === "object" && value !== null;
-}
+type CupManagerResponse = {
+  responses?: Record<string, ResponseItem>;
+};
 
-function getString(
-  value: unknown,
-  key: string
-): string | undefined {
-  if (!isRecord(value)) return undefined;
-
-  const item = value[key];
-
-  return typeof item === "string"
-    ? item
-    : undefined;
-}
-
-function getNumber(
-  value: unknown,
-  key: string
-): number | undefined {
-  if (!isRecord(value)) return undefined;
-
-  const item = value[key];
-
-  return typeof item === "number"
-    ? item
-    : undefined;
-}
-
-function getBoolean(
-  value: unknown,
-  key: string
-): boolean | undefined {
-  if (!isRecord(value)) return undefined;
-
-  const item = value[key];
-
-  return typeof item === "boolean"
-    ? item
-    : undefined;
-}
+type Match = {
+  id: number;
+  start: number | null;
+  end: number | null;
+  duration: number | null;
+  live: boolean;
+  finished: boolean;
+};
 
 export async function GET(request: NextRequest) {
   const teamIdParam =
@@ -124,68 +104,62 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const data = JSON.parse(body);
+    const data =
+      JSON.parse(body) as CupManagerResponse;
 
-    const responses =
-      isRecord(data) &&
-      isRecord(data.responses)
-        ? data.responses
-        : {};
+    const responses = data.responses ?? {};
 
-    const matches: Array<{
-      id: number;
-      start: number | null;
-      end: number | null;
-      duration: number | null;
-      live: boolean;
-      finished: boolean;
-    }> = [];
+    const matches: Match[] = Object.entries(
+      responses
+    )
+      .filter(([key, value]) => {
+        return (
+          key.startsWith("Match({id:") &&
+          value?.entity?.__typename === "Match"
+        );
+      })
+      .map(([key, value]) => {
+        const entity = value.entity ?? {};
 
-    for (const [key, item] of Object.entries(responses)) {
-      if (!key.startsWith("Match({id:")) {
-        continue;
-      }
+        const idFromKey = key.match(
+          /Match\(\{id:(\d+)\}\)/
+        )?.[1];
 
-      if (!isRecord(item)) {
-        continue;
-      }
+        const id =
+          typeof entity.id === "number"
+            ? entity.id
+            : idFromKey
+              ? Number(idFromKey)
+              : null;
 
-      const entity = item.entity;
+        if (id === null) {
+          return null;
+        }
 
-      if (!isRecord(entity)) {
-        continue;
-      }
-
-      if (getString(entity, "__typename") !== "Match") {
-        continue;
-      }
-
-      const id =
-        getNumber(entity, "id");
-
-      if (!id) {
-        continue;
-      }
-
-      matches.push({
-        id,
-        start:
-          getNumber(entity, "start") ??
-          null,
-        end:
-          getNumber(entity, "end") ??
-          null,
-        duration:
-          getNumber(entity, "duration") ??
-          null,
-        live:
-          getBoolean(entity, "live") ??
-          false,
-        finished:
-          getBoolean(entity, "finished") ??
-          false,
-      });
-    }
+        return {
+          id,
+          start:
+            typeof entity.start === "number"
+              ? entity.start
+              : null,
+          end:
+            typeof entity.end === "number"
+              ? entity.end
+              : null,
+          duration:
+            typeof entity.duration === "number"
+              ? entity.duration
+              : null,
+          live:
+            entity.live === true,
+          finished:
+            entity.finished === true,
+        };
+      })
+      .filter(
+        (match): match is Match =>
+          match !== null
+      );
 
     const uniqueMatches = Array.from(
       new Map(
@@ -202,6 +176,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      tournament: "Fotballfest 2026",
       tournamentId: TOURNAMENT_ID,
       teamId,
       count: uniqueMatches.length,
