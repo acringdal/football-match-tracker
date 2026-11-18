@@ -12,10 +12,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const call =
-    `Category({categoryId:${categoryId},` +
-    `tournamentId:${TOURNAMENT_ID}})` +
-    `{stages:[{}]}`;
+const call =
+  `Category({categoryId:${categoryId},` +
+  `tournamentId:${TOURNAMENT_ID}})` +
+  `{teams:[{}]}`;
 
   const url = new URL(
     "https://fotballfest.cupmanager.net/rest/results_api/call"
