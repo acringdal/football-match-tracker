@@ -193,6 +193,7 @@ export default function Home() {
                   background: "transparent",
                   color: "#b42318",
                   fontSize: "14px",
+                  cursor: "pointer",
                 }}
               >
                 Remove
@@ -229,6 +230,7 @@ export default function Home() {
                 border: 0,
                 background: "transparent",
                 fontSize: "22px",
+                cursor: "pointer",
               }}
               aria-label="Close team selector"
             >
@@ -272,7 +274,9 @@ export default function Home() {
             )}
 
             {error && (
-              <p style={{ color: "#b42318" }}>{error}</p>
+              <p style={{ color: "#b42318" }}>
+                {error}
+              </p>
             )}
 
             {!loading &&
@@ -281,4 +285,43 @@ export default function Home() {
                 <button
                   key={team.id}
                   type="button"
-               
+                  onClick={() => addFavourite(team)}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "13px 4px",
+                    border: 0,
+                    borderBottom: "1px solid #eaecf0",
+                    background: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  <strong>{team.name}</strong>
+
+                  {team.categoryName && (
+                    <div
+                      style={{
+                        marginTop: "3px",
+                        color: "#68707c",
+                        fontSize: "13px",
+                      }}
+                    >
+                      {team.categoryName}
+                    </div>
+                  )}
+                </button>
+              ))}
+
+            {!loading &&
+              !error &&
+              filteredTeams.length === 0 && (
+                <p style={{ color: "#68707c" }}>
+                  No matching teams.
+                </p>
+              )}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
