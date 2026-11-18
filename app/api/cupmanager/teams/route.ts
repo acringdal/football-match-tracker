@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-const CUPMANAGER_URL =
-  "https://fotballfest.cupmanager.net/rest/results_api/call?call=Stage%28%7BcategoryId%3A75678349%2CstageId%3A75678335%2CtournamentId%3A75678338%7D%29%7Bcategory%3A%7B%7D%2Cdivisions%3A%5B%7B...+on+Conference%3A%7Btable%3A%7Brows%3A%5B%7Bteam%3A%7Bclub%3A%7Bnation%3A%7B%7D%7D%7D%7D%5D%7D%7D%2C...+on+Playoff%3A%7B%7D%7D%5D%2Cmatches%3A%5B%7B...+on+Match%3A%7Barena%3A%7B%7D%2Caway%3A%7Bteam%3A%7Bclub%3A%7Bnation%3A%7B%7D%7D%7D%7D%2Cdivision%3A%7Bcategory%3A%7B%7D%2Cstage%3A%7Bname%3A%7B%7D%7D%7D%2Chome%3A%7Bteam%3A%7Bclub%3A%7Bnation%3A%7B%7D%7D%7D%7D%2Cprotests%3A%5B%7B%7D%5D%2Cresult%3A%7B%7D%2CroundName%3A%7B%7D%2Cstage%3A%7B%7D%2Cvideo%3A%7B%7D%7D%7D%5D%2Cname%3A%7B%7D%2CnextStages%3A%5B%7Bname%3A%7B%7D%7D%5D%2CpreviousStages%3A%5B%7Bname%3A%7B%7D%7D%5D%2Cstatistics%3A%7B%7D%7D&lang=nb&tournamentId=75678338";
+const TOURNAMENT_ID = 75678338;
+const GROUP_STAGE_ID = 75678335;
 
 type CupManagerResponse = {
   responses?: Record<
@@ -31,9 +31,55 @@ type Team = {
   suffix: string | null;
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const categoryIdParam =
+    request.nextUrl.searchParams.get("categoryId");
+
+  const categoryId = categoryIdParam
+    ? Number(categoryIdParam)
+    : 75678349;
+
+  if (
+    !Number.isInteger(categoryId) ||
+    categoryId <= 0
+  ) {
+    return NextResponse.json(
+      {
+        error: "Valid categoryId is required",
+      },
+      { status: 400 }
+    );
+  }
+
+  const call =
+    `Stage({categoryId:${categoryId},` +
+    `stageId:${GROUP_STAGE_ID},` +
+    `tournamentId:${TOURNAMENT_ID}})` +
+    `{category:{},` +
+    `divisions:[{... on Conference:{table:{rows:[{team:{club:{nation:{}}}}]}}},` +
+    `... on Playoff:{}}],` +
+    `isSingleConference:{},` +
+    `matches:[{... on Match:{arena:{},` +
+    `away:{team:{club:{nation:{}}}},` +
+    `division:{category:{},stage:{name:{}}},` +
+    `home:{team:{club:{nation:{}}}},` +
+    `protests:[{}],result:{},roundName:{},stage:{},video:{}}}],` +
+    `name:{},nextStages:[{name:{}}],` +
+    `previousStages:[{name:{}}],statistics:{}}`;
+
+  const url = new URL(
+    "https://fotballfest.cupmanager.net/rest/results_api/call"
+  );
+
+  url.searchParams.set("call", call);
+  url.searchParams.set("lang", "nb");
+  url.searchParams.set(
+    "tournamentId",
+    String(TOURNAMENT_ID)
+  );
+
   try {
-    const response = await fetch(CUPMANAGER_URL, {
+    const response = await fetch(url.toString(), {
       headers: {
         Accept: "application/json",
         "User-Agent": "Mozilla/5.0",
@@ -57,12 +103,14 @@ export async function GET() {
     let data: CupManagerResponse;
 
     try {
-      data = JSON.parse(body) as CupManagerResponse;
+      data = JSON.parse(
+        body
+      ) as CupManagerResponse;
     } catch {
       return NextResponse.json(
         {
-          error: "CupManager response could not be parsed",
-          contentType: response.headers.get("content-type"),
+          error:
+            "CupManager response could not be parsed",
           preview: body.slice(0, 500),
         },
         { status: 502 }
@@ -71,7 +119,9 @@ export async function GET() {
 
     const responses = data.responses ?? {};
 
-    const teams: Team[] = Object.entries(responses)
+    const teams: Team[] = Object.entries(
+      responses
+    )
       .filter(([key, value]) => {
         return (
           key.startsWith("Team({id:") &&
@@ -100,36 +150,46 @@ export async function GET() {
           entity.shortName ??
           null;
 
-        if (id === null || teamName === null) {
+        if (
+          id === null ||
+          teamName === null
+        ) {
           return null;
         }
 
         return {
           id,
           name: teamName,
-          fullName: name.fullName ?? null,
-          categoryName: name.categoryName ?? null,
-          suffix: name.suffix ?? null,
+          fullName:
+            name.fullName ?? null,
+          categoryName:
+            name.categoryName ?? null,
+          suffix:
+            name.suffix ?? null,
         };
       })
-      .filter((team): team is Team => team !== null);
+      .filter(
+        (team): team is Team =>
+          team !== null
+      );
 
     const uniqueTeams = Array.from(
       new Map(
-        teams.map((team) => [team.id, team])
+        teams.map((team) => [
+          team.id,
+          team,
+        ])
       ).values()
-    ).sort((a, b) => a.name.localeCompare(b.name, "nb"));
+    ).sort((a, b) =>
+      a.name.localeCompare(b.name, "nb")
+    );
 
     return NextResponse.json({
       ok: true,
       tournament: "Fotballfest 2026",
-      tournamentId: 75678338,
-      category: {
-        id: 75678349,
-        gender: "Girls",
-        age: 14,
-      },
-      stageId: 75678335,
+      tournamentId: TOURNAMENT_ID,
+      categoryId,
+      stageId: GROUP_STAGE_ID,
       count: uniqueTeams.length,
       teams: uniqueTeams,
     });
