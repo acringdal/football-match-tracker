@@ -9,7 +9,6 @@ type ResponseItem = {
   entity?: {
     __typename?: string;
     id?: number;
-    type?: string;
 
     name?: {
       clubName?: string;
@@ -35,36 +34,6 @@ type Team = {
   suffix: string | null;
 };
 
-async function callCupManager(call: string) {
-  const url = new URL(BASE_URL);
-
-  url.searchParams.set("call", call);
-  url.searchParams.set("lang", "nb");
-  url.searchParams.set(
-    "tournamentId",
-    String(TOURNAMENT_ID)
-  );
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "Mozilla/5.0",
-      Referer: "https://fotballfest.cupmanager.net/",
-    },
-    cache: "no-store",
-  });
-
-  const body = await response.text();
-
-  if (!response.ok) {
-    throw new Error(
-      `CupManager request failed with status ${response.status}`
-    );
-  }
-
-  return JSON.parse(body) as CupManagerResponse;
-}
-
 export async function GET(request: NextRequest) {
   const categoryIdParam =
     request.nextUrl.searchParams.get("categoryId");
@@ -83,86 +52,49 @@ export async function GET(request: NextRequest) {
 
   const categoryId = Number(categoryIdParam);
 
+  const call =
+    `Category({categoryId:${categoryId},` +
+    `tournamentId:${TOURNAMENT_ID}})` +
+    `{teams:[{}]}`;
+
+  const url = new URL(BASE_URL);
+
+  url.searchParams.set("call", call);
+  url.searchParams.set("lang", "nb");
+  url.searchParams.set(
+    "tournamentId",
+    String(TOURNAMENT_ID)
+  );
+
   try {
-    // Step 1:
-    // Ask CupManager which stages belong
-    // to the selected category.
-    const categoryCall =
-      `Category({categoryId:${categoryId},` +
-      `tournamentId:${TOURNAMENT_ID}})` +
-      `{stages:[{}]}`;
+    const response = await fetch(url.toString(), {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0",
+        Referer: "https://fotballfest.cupmanager.net/",
+      },
+      cache: "no-store",
+    });
 
-    const categoryData =
-      await callCupManager(categoryCall);
+    const body = await response.text();
 
-    const categoryResponses =
-      categoryData.responses ?? {};
-
-    // Step 2:
-    // Find the stage that CupManager identifies
-    // as the conference/group stage.
-    const conferenceStage = Object.values(
-      categoryResponses
-    )
-      .map((item) => item.entity)
-      .find(
-        (entity) =>
-          entity?.__typename === "Stage" &&
-          entity?.type === "conference" &&
-          typeof entity?.id === "number"
-      );
-
-    if (!conferenceStage?.id) {
+    if (!response.ok) {
       return NextResponse.json(
         {
-          error:
-            "Could not find conference stage for category",
-          categoryId,
+          error: "CupManager request failed",
+          cupManagerStatus: response.status,
         },
-        { status: 404 }
+        { status: 502 }
       );
     }
 
-    const stageId = conferenceStage.id;
+    const data =
+      JSON.parse(body) as CupManagerResponse;
 
-    // Step 3:
-    // Retrieve the selected category's
-    // conference stage, including teams.
-    const stageCall =
-      `Stage({categoryId:${categoryId},` +
-      `stageId:${stageId},` +
-      `tournamentId:${TOURNAMENT_ID}})` +
-      `{category:{},` +
-      `divisions:[{... on Conference:{` +
-      `table:{rows:[{team:{club:{nation:{}}}}]}}},` +
-      `... on Playoff:{}}],` +
-      `isSingleConference:{},` +
-      `matches:[{... on Match:{` +
-      `arena:{},` +
-      `away:{team:{club:{nation:{}}}},` +
-      `division:{category:{},stage:{name:{}}},` +
-      `home:{team:{club:{nation:{}}}},` +
-      `protests:[{}],` +
-      `result:{},` +
-      `roundName:{},` +
-      `stage:{},` +
-      `video:{}}}],` +
-      `name:{},` +
-      `nextStages:[{name:{}}],` +
-      `previousStages:[{name:{}}],` +
-      `statistics:{}}`;
+    const responses = data.responses ?? {};
 
-    const stageData =
-      await callCupManager(stageCall);
-
-    const stageResponses =
-      stageData.responses ?? {};
-
-    // Step 4:
-    // Extract all real Team entities returned
-    // by CupManager.
     const teams: Team[] = Object.entries(
-      stageResponses
+      responses
     )
       .filter(([key, value]) => {
         return (
@@ -215,7 +147,6 @@ export async function GET(request: NextRequest) {
           team !== null
       );
 
-    // Remove duplicates and sort alphabetically.
     const uniqueTeams = Array.from(
       new Map(
         teams.map((team) => [
@@ -232,7 +163,6 @@ export async function GET(request: NextRequest) {
       tournament: "Fotballfest 2026",
       tournamentId: TOURNAMENT_ID,
       categoryId,
-      stageId,
       count: uniqueTeams.length,
       teams: uniqueTeams,
     });
