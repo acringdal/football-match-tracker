@@ -2,6 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type Gender = "Girls" | "Boys";
+
+type Category = {
+  id: number;
+  name: string;
+  shortName: string;
+  gender: Gender;
+  age: number;
+};
+
+type CategoriesResponse = {
+  ok: boolean;
+  tournament: string;
+  tournamentId: number;
+  count: number;
+  ages: number[];
+  categories: Category[];
+};
+
 type Team = {
   id: number;
   name: string;
@@ -13,49 +32,126 @@ type Team = {
 type TeamsResponse = {
   ok: boolean;
   tournament: string;
-  category: {
-    id: number;
-    gender: string;
-    age: number;
-  };
   count: number;
   teams: Team[];
 };
 
 export default function Home() {
+  const [categories, setCategories] = useState<Category[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [favourites, setFavourites] = useState<Team[]>([]);
+
   const [showTeamPicker, setShowTeamPicker] = useState(false);
+
+  const [gender, setGender] = useState<Gender>("Girls");
+  const [age, setAge] = useState<number>(14);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+
+  const [categoriesLoading, setCategoriesLoading] =
+    useState(true);
+
+  const [teamsLoading, setTeamsLoading] =
+    useState(false);
+
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadTeams() {
+    async function loadCategories() {
       try {
-        setLoading(true);
+        setCategoriesLoading(true);
         setError("");
 
-        const response = await fetch("/api/cupmanager/teams", {
-          cache: "no-store",
-        });
+        const response = await fetch(
+          "/api/cupmanager/categories",
+          {
+            cache: "no-store",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Could not load categories");
+        }
+
+        const data: CategoriesResponse =
+          await response.json();
+
+        setCategories(data.categories);
+      } catch {
+        setError(
+          "Could not load tournament categories from Fotballfest."
+        );
+      } finally {
+        setCategoriesLoading(false);
+      }
+    }
+
+    loadCategories();
+  }, []);
+
+  const availableAges = useMemo(() => {
+    return Array.from(
+      new Set(
+        categories
+          .filter(
+            (category) => category.gender === gender
+          )
+          .map((category) => category.age)
+      )
+    ).sort((a, b) => a - b);
+  }, [categories, gender]);
+
+  const selectedCategory = useMemo(() => {
+    return categories.find(
+      (category) =>
+        category.gender === gender &&
+        category.age === age
+    );
+  }, [categories, gender, age]);
+
+  const teamsAvailable =
+    selectedCategory?.id === 75678349;
+
+  useEffect(() => {
+    if (!showTeamPicker) {
+      return;
+    }
+
+    if (!teamsAvailable) {
+      setTeams([]);
+      return;
+    }
+
+    async function loadTeams() {
+      try {
+        setTeamsLoading(true);
+        setError("");
+
+        const response = await fetch(
+          "/api/cupmanager/teams",
+          {
+            cache: "no-store",
+          }
+        );
 
         if (!response.ok) {
           throw new Error("Could not load teams");
         }
 
-        const data: TeamsResponse = await response.json();
+        const data: TeamsResponse =
+          await response.json();
 
         setTeams(data.teams);
       } catch {
-        setError("Could not load teams from Fotballfest.");
+        setError(
+          "Could not load teams from Fotballfest."
+        );
       } finally {
-        setLoading(false);
+        setTeamsLoading(false);
       }
     }
 
     loadTeams();
-  }, []);
+  }, [showTeamPicker, teamsAvailable]);
 
   const filteredTeams = useMemo(() => {
     const text = search.trim().toLowerCase();
@@ -79,9 +175,41 @@ export default function Home() {
     });
   }, [teams, search]);
 
+  function handleGenderChange(newGender: Gender) {
+    setGender(newGender);
+    setSearch("");
+    setTeams([]);
+
+    const ages = categories
+      .filter(
+        (category) =>
+          category.gender === newGender
+      )
+      .map((category) => category.age)
+      .sort((a, b) => a - b);
+
+    if (ages.length > 0) {
+      if (ages.includes(14)) {
+        setAge(14);
+      } else {
+        setAge(ages[0]);
+      }
+    }
+  }
+
+  function handleAgeChange(newAge: number) {
+    setAge(newAge);
+    setSearch("");
+    setTeams([]);
+  }
+
   function addFavourite(team: Team) {
     setFavourites((current) => {
-      if (current.some((item) => item.id === team.id)) {
+      if (
+        current.some(
+          (item) => item.id === team.id
+        )
+      ) {
         return current;
       }
 
@@ -94,7 +222,9 @@ export default function Home() {
 
   function removeFavourite(teamId: number) {
     setFavourites((current) =>
-      current.filter((team) => team.id !== teamId)
+      current.filter(
+        (team) => team.id !== teamId
+      )
     );
   }
 
@@ -106,19 +236,33 @@ export default function Home() {
         padding: "24px 16px 60px",
       }}
     >
-      <div style={{ fontSize: "14px", color: "#68707c" }}>
+      <div
+        style={{
+          fontSize: "14px",
+          color: "#68707c",
+        }}
+      >
         Tournament Match Tracker
       </div>
 
-      <h1 style={{ marginBottom: "8px" }}>⚽ My Matches</h1>
+      <h1 style={{ marginBottom: "8px" }}>
+        ⚽ My Matches
+      </h1>
 
-      <p style={{ marginTop: 0, color: "#68707c" }}>
+      <p
+        style={{
+          marginTop: 0,
+          color: "#68707c",
+        }}
+      >
         Follow your favourite teams
       </p>
 
       <button
         type="button"
-        onClick={() => setShowTeamPicker(true)}
+        onClick={() =>
+          setShowTeamPicker(true)
+        }
         style={{
           width: "100%",
           padding: "14px",
@@ -145,15 +289,29 @@ export default function Home() {
             textAlign: "center",
           }}
         >
-          <strong>No favourite teams yet</strong>
+          <strong>
+            No favourite teams yet
+          </strong>
 
-          <p style={{ color: "#68707c", marginBottom: 0 }}>
-            Add a team to see upcoming, live and played matches.
+          <p
+            style={{
+              color: "#68707c",
+              marginBottom: 0,
+            }}
+          >
+            Add a team to see upcoming,
+            live and played matches.
           </p>
         </div>
       ) : (
-        <section style={{ marginTop: "28px" }}>
-          <h2 style={{ fontSize: "18px" }}>⭐ Favourite teams</h2>
+        <section
+          style={{ marginTop: "28px" }}
+        >
+          <h2
+            style={{ fontSize: "18px" }}
+          >
+            ⭐ Favourite teams
+          </h2>
 
           {favourites.map((team) => (
             <div
@@ -164,13 +322,16 @@ export default function Home() {
                 background: "white",
                 borderRadius: "12px",
                 display: "flex",
-                justifyContent: "space-between",
+                justifyContent:
+                  "space-between",
                 gap: "12px",
                 alignItems: "center",
               }}
             >
               <div>
-                <strong>{team.name}</strong>
+                <strong>
+                  {team.name}
+                </strong>
 
                 {team.categoryName && (
                   <div
@@ -187,10 +348,13 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => removeFavourite(team.id)}
+                onClick={() =>
+                  removeFavourite(team.id)
+                }
                 style={{
                   border: 0,
-                  background: "transparent",
+                  background:
+                    "transparent",
                   color: "#b42318",
                   fontSize: "14px",
                   cursor: "pointer",
@@ -215,20 +379,29 @@ export default function Home() {
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent:
+                "space-between",
               alignItems: "center",
             }}
           >
-            <h2 style={{ margin: 0, fontSize: "20px" }}>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: "20px",
+              }}
+            >
               Add team
             </h2>
 
             <button
               type="button"
-              onClick={() => setShowTeamPicker(false)}
+              onClick={() =>
+                setShowTeamPicker(false)
+              }
               style={{
                 border: 0,
-                background: "transparent",
+                background:
+                  "transparent",
                 fontSize: "22px",
                 cursor: "pointer",
               }}
@@ -238,88 +411,305 @@ export default function Home() {
             </button>
           </div>
 
-          <p style={{ color: "#68707c" }}>
-            Fotballfest 2026 · Girls · 14
+          <p
+            style={{
+              color: "#68707c",
+            }}
+          >
+            Fotballfest 2026
           </p>
 
-          <label
-            htmlFor="team-search"
-            style={{ fontWeight: 600 }}
-          >
-            Team
-          </label>
+          {categoriesLoading ? (
+            <p
+              style={{
+                color: "#68707c",
+              }}
+            >
+              Loading tournament
+              categories...
+            </p>
+          ) : (
+            <>
+              <div
+                style={{
+                  marginTop: "18px",
+                }}
+              >
+                <strong>Gender</strong>
 
-          <input
-            id="team-search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search team..."
-            autoComplete="off"
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              marginTop: "8px",
-              padding: "12px",
-              borderRadius: "8px",
-              border: "1px solid #d0d5dd",
-              fontSize: "16px",
-            }}
-          />
-
-          <div style={{ marginTop: "12px" }}>
-            {loading && (
-              <p style={{ color: "#68707c" }}>
-                Loading Fotballfest teams...
-              </p>
-            )}
-
-            {error && (
-              <p style={{ color: "#b42318" }}>
-                {error}
-              </p>
-            )}
-
-            {!loading &&
-              !error &&
-              filteredTeams.map((team) => (
-                <button
-                  key={team.id}
-                  type="button"
-                  onClick={() => addFavourite(team)}
+                <div
                   style={{
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "13px 4px",
-                    border: 0,
-                    borderBottom: "1px solid #eaecf0",
-                    background: "white",
-                    cursor: "pointer",
+                    display: "flex",
+                    gap: "8px",
+                    marginTop: "8px",
                   }}
                 >
-                  <strong>{team.name}</strong>
-
-                  {team.categoryName && (
-                    <div
+                  {(
+                    [
+                      "Girls",
+                      "Boys",
+                    ] as Gender[]
+                  ).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() =>
+                        handleGenderChange(
+                          option
+                        )
+                      }
                       style={{
-                        marginTop: "3px",
-                        color: "#68707c",
-                        fontSize: "13px",
+                        flex: 1,
+                        padding: "11px",
+                        borderRadius:
+                          "8px",
+                        border:
+                          gender ===
+                          option
+                            ? "2px solid #166534"
+                            : "1px solid #d0d5dd",
+                        background:
+                          gender ===
+                          option
+                            ? "#ecfdf3"
+                            : "white",
+                        fontWeight:
+                          gender ===
+                          option
+                            ? 700
+                            : 400,
+                        cursor:
+                          "pointer",
                       }}
                     >
-                      {team.categoryName}
-                    </div>
-                  )}
-                </button>
-              ))}
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            {!loading &&
-              !error &&
-              filteredTeams.length === 0 && (
-                <p style={{ color: "#68707c" }}>
-                  No matching teams.
-                </p>
-              )}
-          </div>
+              <div
+                style={{
+                  marginTop: "20px",
+                }}
+              >
+                <strong>Age</strong>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                    marginTop: "8px",
+                  }}
+                >
+                  {availableAges.map(
+                    (option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() =>
+                          handleAgeChange(
+                            option
+                          )
+                        }
+                        style={{
+                          minWidth:
+                            "60px",
+                          padding:
+                            "11px 14px",
+                          borderRadius:
+                            "8px",
+                          border:
+                            age ===
+                            option
+                              ? "2px solid #166534"
+                              : "1px solid #d0d5dd",
+                          background:
+                            age ===
+                            option
+                              ? "#ecfdf3"
+                              : "white",
+                          fontWeight:
+                            age ===
+                            option
+                              ? 700
+                              : 400,
+                          cursor:
+                            "pointer",
+                        }}
+                      >
+                        {option}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: "22px",
+                }}
+              >
+                <strong>Team</strong>
+
+                {selectedCategory && (
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      marginBottom:
+                        "10px",
+                      fontSize: "13px",
+                      color: "#68707c",
+                    }}
+                  >
+                    {
+                      selectedCategory.name
+                    }
+                  </div>
+                )}
+
+                {teamsAvailable ? (
+                  <>
+                    <input
+                      value={search}
+                      onChange={(event) =>
+                        setSearch(
+                          event.target
+                            .value
+                        )
+                      }
+                      placeholder="Search team..."
+                      autoComplete="off"
+                      style={{
+                        width: "100%",
+                        boxSizing:
+                          "border-box",
+                        padding: "12px",
+                        borderRadius:
+                          "8px",
+                        border:
+                          "1px solid #d0d5dd",
+                        fontSize: "16px",
+                      }}
+                    />
+
+                    <div
+                      style={{
+                        marginTop: "12px",
+                      }}
+                    >
+                      {teamsLoading && (
+                        <p
+                          style={{
+                            color:
+                              "#68707c",
+                          }}
+                        >
+                          Loading teams...
+                        </p>
+                      )}
+
+                      {!teamsLoading &&
+                        filteredTeams.map(
+                          (team) => (
+                            <button
+                              key={
+                                team.id
+                              }
+                              type="button"
+                              onClick={() =>
+                                addFavourite(
+                                  team
+                                )
+                              }
+                              style={{
+                                width:
+                                  "100%",
+                                textAlign:
+                                  "left",
+                                padding:
+                                  "13px 4px",
+                                border: 0,
+                                borderBottom:
+                                  "1px solid #eaecf0",
+                                background:
+                                  "white",
+                                cursor:
+                                  "pointer",
+                              }}
+                            >
+                              <strong>
+                                {
+                                  team.name
+                                }
+                              </strong>
+
+                              {team.categoryName && (
+                                <div
+                                  style={{
+                                    marginTop:
+                                      "3px",
+                                    color:
+                                      "#68707c",
+                                    fontSize:
+                                      "13px",
+                                  }}
+                                >
+                                  {
+                                    team.categoryName
+                                  }
+                                </div>
+                              )}
+                            </button>
+                          )
+                        )}
+
+                      {!teamsLoading &&
+                        filteredTeams.length ===
+                          0 && (
+                          <p
+                            style={{
+                              color:
+                                "#68707c",
+                            }}
+                          >
+                            No matching
+                            teams.
+                          </p>
+                        )}
+                    </div>
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      padding: "14px",
+                      background:
+                        "#f9fafb",
+                      borderRadius: "8px",
+                      color: "#68707c",
+                      fontSize: "14px",
+                    }}
+                  >
+                    Team data connection
+                    for this class is the
+                    next development step.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {error && (
+            <p
+              style={{
+                color: "#b42318",
+                marginTop: "16px",
+              }}
+            >
+              {error}
+            </p>
+          )}
         </section>
       )}
     </main>
