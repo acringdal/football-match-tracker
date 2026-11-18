@@ -55,6 +55,8 @@ export default function Home() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function loadCategories() {
       try {
         setCategoriesLoading(true);
@@ -64,6 +66,7 @@ export default function Home() {
           "/api/cupmanager/categories",
           {
             cache: "no-store",
+            signal: controller.signal,
           }
         );
 
@@ -71,26 +74,47 @@ export default function Home() {
           throw new Error("Could not load categories");
         }
 
-        const data: CategoriesResponse = await response.json();
+        const data: CategoriesResponse =
+          await response.json();
 
-        setCategories(data.categories);
-      } catch {
-        setError(
-          "Could not load tournament categories from Fotballfest."
-        );
+        if (!controller.signal.aborted) {
+          setCategories(data.categories);
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        if (!controller.signal.aborted) {
+          setError(
+            "Could not load tournament categories from Fotballfest."
+          );
+        }
       } finally {
-        setCategoriesLoading(false);
+        if (!controller.signal.aborted) {
+          setCategoriesLoading(false);
+        }
       }
     }
 
     loadCategories();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const availableAges = useMemo(() => {
     return Array.from(
       new Set(
         categories
-          .filter((category) => category.gender === gender)
+          .filter(
+            (category) =>
+              category.gender === gender
+          )
           .map((category) => category.age)
       )
     ).sort((a, b) => a - b);
@@ -107,19 +131,26 @@ export default function Home() {
   useEffect(() => {
     if (!showTeamPicker || !selectedCategory) {
       setTeams([]);
+      setTeamsLoading(false);
       return;
     }
+
+    const controller = new AbortController();
+
+    const categoryId = selectedCategory.id;
 
     async function loadTeams() {
       try {
         setTeamsLoading(true);
         setError("");
         setTeams([]);
+        setSearch("");
 
         const response = await fetch(
-          `/api/cupmanager/teams?categoryId=${selectedCategory.id}`,
+          `/api/cupmanager/teams?categoryId=${categoryId}`,
           {
             cache: "no-store",
+            signal: controller.signal,
           }
         );
 
@@ -127,19 +158,41 @@ export default function Home() {
           throw new Error("Could not load teams");
         }
 
-        const data: TeamsResponse = await response.json();
+        const data: TeamsResponse =
+          await response.json();
 
-        setTeams(data.teams);
-      } catch {
-        setError(
-          "Could not load teams from Fotballfest."
-        );
+        if (
+          !controller.signal.aborted &&
+          data.categoryId === categoryId
+        ) {
+          setTeams(data.teams);
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        if (!controller.signal.aborted) {
+          setTeams([]);
+          setError(
+            "Could not load teams from Fotballfest."
+          );
+        }
       } finally {
-        setTeamsLoading(false);
+        if (!controller.signal.aborted) {
+          setTeamsLoading(false);
+        }
       }
     }
 
     loadTeams();
+
+    return () => {
+      controller.abort();
+    };
   }, [showTeamPicker, selectedCategory]);
 
   const filteredTeams = useMemo(() => {
@@ -168,31 +221,37 @@ export default function Home() {
     setGender(newGender);
     setSearch("");
     setTeams([]);
+    setError("");
 
-    const ages = categories
+    const newGenderAges = categories
       .filter(
-        (category) => category.gender === newGender
+        (category) =>
+          category.gender === newGender
       )
       .map((category) => category.age)
       .sort((a, b) => a - b);
 
-    if (ages.length > 0) {
-      if (ages.includes(age)) {
-        return;
-      }
-
-      if (ages.includes(14)) {
-        setAge(14);
-      } else {
-        setAge(ages[0]);
-      }
+    if (newGenderAges.length === 0) {
+      return;
     }
+
+    if (newGenderAges.includes(age)) {
+      return;
+    }
+
+    if (newGenderAges.includes(14)) {
+      setAge(14);
+      return;
+    }
+
+    setAge(newGenderAges[0]);
   }
 
   function handleAgeChange(newAge: number) {
     setAge(newAge);
     setSearch("");
     setTeams([]);
+    setError("");
   }
 
   function addFavourite(team: Team) {
@@ -222,6 +281,7 @@ export default function Home() {
 
   function openTeamPicker() {
     setSearch("");
+    setTeams([]);
     setError("");
     setShowTeamPicker(true);
   }
@@ -331,7 +391,8 @@ export default function Home() {
                 background: "white",
                 borderRadius: "12px",
                 display: "flex",
-                justifyContent: "space-between",
+                justifyContent:
+                  "space-between",
                 gap: "12px",
                 alignItems: "center",
               }}
@@ -391,7 +452,8 @@ export default function Home() {
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent:
+                "space-between",
               alignItems: "center",
               gap: "12px",
             }}
@@ -452,37 +514,37 @@ export default function Home() {
                     marginTop: "8px",
                   }}
                 >
-                  {(["Girls", "Boys"] as Gender[]).map(
-                    (option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() =>
-                          handleGenderChange(option)
-                        }
-                        style={{
-                          flex: 1,
-                          padding: "11px",
-                          borderRadius: "8px",
-                          border:
-                            gender === option
-                              ? "2px solid #166534"
-                              : "1px solid #d0d5dd",
-                          background:
-                            gender === option
-                              ? "#ecfdf3"
-                              : "white",
-                          fontWeight:
-                            gender === option
-                              ? 700
-                              : 400,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {option}
-                      </button>
-                    )
-                  )}
+                  {(
+                    ["Girls", "Boys"] as Gender[]
+                  ).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() =>
+                        handleGenderChange(option)
+                      }
+                      style={{
+                        flex: 1,
+                        padding: "11px",
+                        borderRadius: "8px",
+                        border:
+                          gender === option
+                            ? "2px solid #166534"
+                            : "1px solid #d0d5dd",
+                        background:
+                          gender === option
+                            ? "#ecfdf3"
+                            : "white",
+                        fontWeight:
+                          gender === option
+                            ? 700
+                            : 400,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {option}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -562,7 +624,9 @@ export default function Home() {
                 <input
                   value={search}
                   onChange={(event) =>
-                    setSearch(event.target.value)
+                    setSearch(
+                      event.target.value
+                    )
                   }
                   placeholder="Search team..."
                   autoComplete="off"
@@ -572,10 +636,12 @@ export default function Home() {
                   }
                   style={{
                     width: "100%",
-                    boxSizing: "border-box",
+                    boxSizing:
+                      "border-box",
                     padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #d0d5dd",
+                    border:
+                      "1px solid #d0d5dd",
                     fontSize: "16px",
                     background:
                       teamsLoading ||
@@ -602,46 +668,51 @@ export default function Home() {
 
                   {!teamsLoading &&
                     !error &&
-                    filteredTeams.map((team) => (
-                      <button
-                        key={team.id}
-                        type="button"
-                        onClick={() =>
-                          addFavourite(team)
-                        }
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "13px 4px",
-                          border: 0,
-                          borderBottom:
-                            "1px solid #eaecf0",
-                          background: "white",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <strong>
-                          {team.name}
-                        </strong>
+                    filteredTeams.map(
+                      (team) => (
+                        <button
+                          key={team.id}
+                          type="button"
+                          onClick={() =>
+                            addFavourite(team)
+                          }
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "13px 4px",
+                            border: 0,
+                            borderBottom:
+                              "1px solid #eaecf0",
+                            background: "white",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <strong>
+                            {team.name}
+                          </strong>
 
-                        {team.categoryName && (
-                          <div
-                            style={{
-                              marginTop: "3px",
-                              color: "#68707c",
-                              fontSize: "13px",
-                            }}
-                          >
-                            {team.categoryName}
-                          </div>
-                        )}
-                      </button>
-                    ))}
+                          {team.categoryName && (
+                            <div
+                              style={{
+                                marginTop: "3px",
+                                color: "#68707c",
+                                fontSize: "13px",
+                              }}
+                            >
+                              {
+                                team.categoryName
+                              }
+                            </div>
+                          )}
+                        </button>
+                      )
+                    )}
 
                   {!teamsLoading &&
                     !error &&
                     selectedCategory &&
-                    filteredTeams.length === 0 && (
+                    filteredTeams.length ===
+                      0 && (
                       <p
                         style={{
                           color: "#68707c",
