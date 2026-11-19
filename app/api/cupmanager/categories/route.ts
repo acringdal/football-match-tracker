@@ -1,121 +1,1464 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-const CUPMANAGER_URL =
-  "https://fotballfest.cupmanager.net/rest/results_api/call?call=Tournament%28%7Bid%3A75678338%7D%29%24lotCategories%5B%7Bstatistics%3A%7B%7D%7D%5D&lang=nb&tournamentId=75678338";
+const TOURNAMENT_ID = 75678338;
 
-type CategoryEntity = {
-  __typename?: string;
-  id?: number;
-  name?: string;
-  shortName?: string;
-  gender?: string;
-  age?: number;
-};
+const BASE_URL =
+  "https://fotballfest.cupmanager.net/rest/results_api/call";
 
-type CupManagerResponse = {
-  responses?: Record<
-    string,
-    {
-      entity?: CategoryEntity;
-    }
-  >;
-};
+type RecordValue = Record<string, unknown>;
 
-type Category = {
-  id: number;
+type TeamSummary = {
+  id: number | null;
   name: string;
-  shortName: string;
-  gender: "Girls" | "Boys";
-  age: number;
+  winnerOfMatch?: string | null;
+  qualificationLabel?: string | null;
 };
 
-export async function GET() {
-  try {
-    const response = await fetch(CUPMANAGER_URL, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Mozilla/5.0",
-        Referer: "https://fotballfest.cupmanager.net/",
+type ArenaSummary = {
+  id: number | null;
+  name: string | null;
+  locationId: number | null;
+};
+
+type ScoreSummary = {
+  home: number;
+  away: number;
+  for: number | null;
+  against: number | null;
+  penalties: boolean;
+  walkover: boolean;
+};
+
+type MatchSummary = {
+  id: number;
+  matchNumber: string | null;
+
+  selectedTeam: TeamSummary;
+  opponent: TeamSummary;
+
+  homeTeam: TeamSummary;
+  awayTeam: TeamSummary;
+
+  homeAway: "home" | "away" | "unknown";
+
+  start: number | null;
+  end: number | null;
+  duration: number | null;
+
+  arena: ArenaSummary;
+
+  score: ScoreSummary | null;
+
+  live: boolean;
+  finished: boolean;
+  scheduled: boolean;
+
+  status: "live" | "played" | "upcoming";
+
+  group: string | null;
+  stageName: string | null;
+  roundName: string | null;
+  competitionLabel: string | null;
+
+  nextMatchWinner: string | null;
+  nextMatchLoser: string | null;
+};
+
+function isRecord(
+  value: unknown
+): value is RecordValue {
+  return (
+    typeof value === "object" &&
+    value !== null
+  );
+}
+
+function getString(
+  value: unknown,
+  key: string
+): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const item = value[key];
+
+  return typeof item === "string"
+    ? item
+    : undefined;
+}
+
+function getNumber(
+  value: unknown,
+  key: string
+): number | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const item = value[key];
+
+  return typeof item === "number"
+    ? item
+    : undefined;
+}
+
+function getBoolean(
+  value: unknown,
+  key: string
+): boolean | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const item = value[key];
+
+  return typeof item === "boolean"
+    ? item
+    : undefined;
+}
+
+function getRecord(
+  value: unknown,
+  key: string
+): RecordValue | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const item = value[key];
+
+  return isRecord(item)
+    ? item
+    : undefined;
+}
+
+function getHref(
+  value: unknown,
+  key: string
+): string | undefined {
+  const reference =
+    getRecord(value, key);
+
+  return getString(
+    reference,
+    "href"
+  );
+}
+
+function getEntity(
+  responses: RecordValue,
+  reference: string | undefined
+): RecordValue | undefined {
+  if (!reference) {
+    return undefined;
+  }
+
+  const item =
+    responses[reference];
+
+  if (!isRecord(item)) {
+    return undefined;
+  }
+
+  const entity =
+    item.entity;
+
+  return isRecord(entity)
+    ? entity
+    : undefined;
+}
+
+function getResponseEntity(
+  responses: RecordValue,
+  reference: string | undefined
+): unknown {
+  if (!reference) {
+    return undefined;
+  }
+
+  const item =
+    responses[reference];
+
+  if (!isRecord(item)) {
+    return undefined;
+  }
+
+  return item.entity;
+}
+
+function extractIdFromReference(
+  reference: string | undefined,
+  pattern: RegExp
+): number | null {
+  if (!reference) {
+    return null;
+  }
+
+  const match =
+    reference.match(pattern);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const id =
+    Number(match[1]);
+
+  return Number.isFinite(id)
+    ? id
+    : null;
+}
+
+function getLocalizedText(
+  value: unknown
+): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return (
+    getString(value, "nb") ??
+    getString(value, "no") ??
+    getString(value, "en") ??
+    Object.entries(value)
+      .filter(
+        ([key]) =>
+          key !== "__typename" &&
+          key !== "href"
+      )
+      .map(([, item]) => item)
+      .find(
+        (item): item is string =>
+          typeof item === "string"
+      )
+  );
+}
+
+function getTeamName(
+  entity: RecordValue | undefined
+): string | null {
+  if (!entity) {
+    return null;
+  }
+
+  const name =
+    getRecord(entity, "name");
+
+  return (
+    getString(name, "clubName") ??
+    getString(name, "fullName") ??
+    getLocalizedText(name) ??
+    getString(entity, "originalName") ??
+    getString(entity, "shortName") ??
+    null
+  );
+}
+
+function getWinnerMatchNumber(
+  name: string | null
+): string | null {
+  if (!name) {
+    return null;
+  }
+
+  const match =
+    name.match(
+      /^(?:Vinn\.?|Winner(?: of)?(?: match)?)[\s#]*(\d+)$/i
+    );
+
+  return match?.[1] ?? null;
+}
+
+function getTeamFromActor(
+  actorEntity: RecordValue | undefined,
+  responses: RecordValue
+): TeamSummary {
+  if (!actorEntity) {
+    return {
+      id: null,
+      name: "To be decided",
+      winnerOfMatch: null,
+      qualificationLabel: null,
+    };
+  }
+
+  const teamReference =
+    getHref(
+      actorEntity,
+      "team"
+    );
+
+  const teamEntity =
+    getEntity(
+      responses,
+      teamReference
+    );
+
+  const teamId =
+    getNumber(
+      teamEntity,
+      "id"
+    ) ??
+    extractIdFromReference(
+      teamReference,
+      /Team\(\{id:(\d+)\}\)/
+    );
+
+  const actorName =
+    getLocalizedText(
+      actorEntity.name
+    );
+
+  const teamName =
+    getTeamName(
+      teamEntity
+    ) ??
+    actorName ??
+    getString(
+      actorEntity,
+      "originalName"
+    ) ??
+    getString(
+      actorEntity,
+      "shortName"
+    ) ??
+    "To be decided";
+
+  return {
+    id: teamId,
+    name: teamName,
+    winnerOfMatch:
+      getWinnerMatchNumber(
+        teamName
+      ),
+    qualificationLabel: null,
+  };
+}
+
+function getSelectedTeam(
+  responses: RecordValue,
+  teamId: number
+): TeamSummary {
+  const reference =
+    `Team({id:${teamId}})`;
+
+  const entity =
+    getEntity(
+      responses,
+      reference
+    );
+
+  return {
+    id: teamId,
+    name:
+      getTeamName(
+        entity
+      ) ??
+      `Team ${teamId}`,
+  };
+}
+
+function getArena(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): ArenaSummary {
+  const arenaReference =
+    getHref(
+      matchEntity,
+      "arena"
+    );
+
+  const arenaEntity =
+    getEntity(
+      responses,
+      arenaReference
+    );
+
+  const arenaId =
+    getNumber(
+      arenaEntity,
+      "id"
+    ) ??
+    extractIdFromReference(
+      arenaReference,
+      /Arena\(\{id:(\d+)/
+    );
+
+  const locationReference =
+    getHref(
+      arenaEntity,
+      "location"
+    );
+
+  const locationId =
+    extractIdFromReference(
+      locationReference,
+      /Location\(\{id:(\d+)/
+    );
+
+  const arenaName =
+    getString(
+      arenaEntity,
+      "completeName"
+    ) ??
+    getString(
+      arenaEntity,
+      "fieldName"
+    ) ??
+    getString(
+      arenaEntity,
+      "name"
+    ) ??
+    null;
+
+  return {
+    id: arenaId,
+    name: arenaName,
+    locationId,
+  };
+}
+
+function getResult(
+  matchEntity: RecordValue,
+  responses: RecordValue,
+  selectedTeamId: number,
+  homeTeamId: number | null,
+  awayTeamId: number | null
+): ScoreSummary | null {
+  const resultReference =
+    getHref(
+      matchEntity,
+      "result"
+    );
+
+  const resultEntity =
+    getEntity(
+      responses,
+      resultReference
+    );
+
+  if (!resultEntity) {
+    return null;
+  }
+
+  const resultLive =
+    getBoolean(
+      resultEntity,
+      "live"
+    ) ?? false;
+
+  const resultFinished =
+    getBoolean(
+      resultEntity,
+      "finished"
+    ) ?? false;
+
+  if (
+    !resultLive &&
+    !resultFinished
+  ) {
+    return null;
+  }
+
+  const homeGoals =
+    getNumber(
+      resultEntity,
+      "homeGoals"
+    ) ?? 0;
+
+  const awayGoals =
+    getNumber(
+      resultEntity,
+      "awayGoals"
+    ) ?? 0;
+
+  let goalsFor: number | null =
+    null;
+
+  let goalsAgainst: number | null =
+    null;
+
+  if (
+    homeTeamId ===
+    selectedTeamId
+  ) {
+    goalsFor =
+      homeGoals;
+
+    goalsAgainst =
+      awayGoals;
+  }
+
+  if (
+    awayTeamId ===
+    selectedTeamId
+  ) {
+    goalsFor =
+      awayGoals;
+
+    goalsAgainst =
+      homeGoals;
+  }
+
+  return {
+    home: homeGoals,
+    away: awayGoals,
+    for: goalsFor,
+    against: goalsAgainst,
+
+    penalties:
+      getBoolean(
+        resultEntity,
+        "penalties"
+      ) ?? false,
+
+    walkover:
+      getBoolean(
+        resultEntity,
+        "walkover"
+      ) ?? false,
+  };
+}
+
+function getStatus(
+  live: boolean,
+  finished: boolean
+): "live" | "played" | "upcoming" {
+  if (live) {
+    return "live";
+  }
+
+  if (finished) {
+    return "played";
+  }
+
+  return "upcoming";
+}
+
+function getGroup(
+  divisionName: string | null
+): string | null {
+  if (!divisionName) {
+    return null;
+  }
+
+  const match =
+    divisionName.match(
+      /(?:Pulje|Group)\s+([A-ZÆØÅ0-9]+)/i
+    );
+
+  return (
+    match?.[1]?.toUpperCase() ??
+    null
+  );
+}
+
+function getRoundName(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): string | null {
+  const roundNameReference =
+    getHref(
+      matchEntity,
+      "roundName"
+    );
+
+  if (
+    !roundNameReference
+  ) {
+    return null;
+  }
+
+  const roundNameEntity =
+    getEntity(
+      responses,
+      roundNameReference
+    );
+
+  if (
+    !roundNameEntity
+  ) {
+    return null;
+  }
+
+  const name =
+    getRecord(
+      roundNameEntity,
+      "name"
+    );
+
+  const resolvedName =
+    getLocalizedText(
+      name
+    );
+
+  if (
+    resolvedName
+  ) {
+    return resolvedName;
+  }
+
+  const definite =
+    getRecord(
+      roundNameEntity,
+      "definite"
+    );
+
+  return (
+    getLocalizedText(
+      definite
+    ) ??
+    null
+  );
+}
+
+function getStageName(
+  matchEntity: RecordValue,
+  responses: RecordValue,
+  divisionEntity: RecordValue | undefined
+): string | null {
+  const matchStageReference =
+    getHref(
+      matchEntity,
+      "stage"
+    );
+
+  if (
+    matchStageReference
+  ) {
+    const stageEntity =
+      getEntity(
+        responses,
+        matchStageReference
+      );
+
+    if (
+      stageEntity
+    ) {
+      const directName =
+        getLocalizedText(
+          stageEntity.name
+        );
+
+      if (
+        directName &&
+        !directName.startsWith(
+          "Stage("
+        )
+      ) {
+        return directName;
+      }
+
+      const nameReference =
+        getHref(
+          stageEntity,
+          "name"
+        );
+
+      const nameResponse =
+        getResponseEntity(
+          responses,
+          nameReference
+        );
+
+      const resolvedName =
+        getLocalizedText(
+          nameResponse
+        );
+
+      if (
+        resolvedName
+      ) {
+        return resolvedName;
+      }
+
+      if (
+        isRecord(
+          nameResponse
+        )
+      ) {
+        const nested =
+          getLocalizedText(
+            nameResponse.name
+          );
+
+        if (
+          nested
+        ) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  const divisionStageReference =
+    getHref(
+      divisionEntity,
+      "stage"
+    );
+
+  if (
+    divisionStageReference
+  ) {
+    const divisionStageEntity =
+      getEntity(
+        responses,
+        divisionStageReference
+      );
+
+    if (
+      divisionStageEntity
+    ) {
+      const directName =
+        getLocalizedText(
+          divisionStageEntity.name
+        );
+
+      if (
+        directName &&
+        !directName.startsWith(
+          "Stage("
+        )
+      ) {
+        return directName;
+      }
+
+      const stageNameReference =
+        getHref(
+          divisionStageEntity,
+          "name"
+        );
+
+      const stageNameResponse =
+        getResponseEntity(
+          responses,
+          stageNameReference
+        );
+
+      const resolved =
+        getLocalizedText(
+          stageNameResponse
+        );
+
+      if (
+        resolved
+      ) {
+        return resolved;
+      }
+
+      if (
+        isRecord(
+          stageNameResponse
+        )
+      ) {
+        const nested =
+          getLocalizedText(
+            stageNameResponse.name
+          );
+
+        if (
+          nested
+        ) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  const divisionStage =
+    getRecord(
+      divisionEntity,
+      "stage"
+    );
+
+  if (
+    divisionStage
+  ) {
+    const direct =
+      getLocalizedText(
+        divisionStage.name
+      );
+
+    if (
+      direct
+    ) {
+      return direct;
+    }
+  }
+
+  return null;
+}
+
+function getCompetitionLabel(
+  group: string | null,
+  stageName: string | null,
+  roundName: string | null
+): string | null {
+  if (group) {
+    return `Group ${group}`;
+  }
+
+  const stageValue =
+    stageName
+      ?.trim()
+      .toLowerCase() ??
+    "";
+
+  const roundValue =
+    roundName
+      ?.trim()
+      .toLowerCase() ??
+    "";
+
+  let playoff = "";
+
+  if (
+    stageValue ===
+      "sluttspill a" ||
+    stageValue ===
+      "playoff a" ||
+    stageValue.includes(
+      "sluttspill a"
+    ) ||
+    stageValue.includes(
+      "playoff a"
+    )
+  ) {
+    playoff = "A";
+  }
+
+  if (
+    stageValue ===
+      "sluttspill b" ||
+    stageValue ===
+      "playoff b" ||
+    stageValue.includes(
+      "sluttspill b"
+    ) ||
+    stageValue.includes(
+      "playoff b"
+    )
+  ) {
+    playoff = "B";
+  }
+
+  let round = "";
+
+  if (
+    roundValue.includes(
+      "1/4"
+    ) ||
+    roundValue.includes(
+      "kvart"
+    ) ||
+    roundValue.includes(
+      "quarter"
+    )
+  ) {
+    round =
+      "Quarterfinal";
+  } else if (
+    roundValue.includes(
+      "1/2"
+    ) ||
+    roundValue.includes(
+      "semi"
+    )
+  ) {
+    round =
+      "Semifinal";
+  } else if (
+    roundValue.includes(
+      "final"
+    )
+  ) {
+    round =
+      "Final";
+  }
+
+  if (
+    playoff &&
+    round
+  ) {
+    return `${playoff} ${round}`;
+  }
+
+  if (
+    round
+  ) {
+    return round;
+  }
+
+  if (
+    playoff
+  ) {
+    return playoff;
+  }
+
+  return null;
+}
+
+export async function GET(
+  request: NextRequest
+) {
+  const teamIdParam =
+    request.nextUrl
+      .searchParams
+      .get("teamId");
+
+  if (
+    !teamIdParam ||
+    !/^\d+$/.test(
+      teamIdParam
+    )
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Valid teamId is required",
       },
-      cache: "no-store",
-    });
+      {
+        status: 400,
+      }
+    );
+  }
 
-    const body = await response.text();
+  const teamId =
+    Number(
+      teamIdParam
+    );
 
-    if (!response.ok) {
+  const call =
+    `Team({id:${teamId}})` +
+    `{matches:[{... on Match:{` +
+    `arena:{},` +
+    `away:{team:{club:{nation:{}}}},` +
+    `division:{category:{},stage:{name:{}}},` +
+    `home:{team:{club:{nation:{}}}},` +
+    `nextMatchLoser:{},` +
+    `nextMatchWinner:{},` +
+    `result:{},` +
+    `roundName:{},` +
+    `stage:{name:{}}` +
+    `}}],` +
+    `extraMatches:[{matches:[{... on Match:{` +
+    `arena:{},` +
+    `away:{team:{club:{nation:{}}}},` +
+    `division:{category:{},stage:{name:{}}},` +
+    `home:{team:{club:{nation:{}}}},` +
+    `nextMatchLoser:{},` +
+    `nextMatchWinner:{},` +
+    `result:{},` +
+    `roundName:{},` +
+    `stage:{name:{}}` +
+    `}}]}]}`;
+
+  const url =
+    new URL(
+      BASE_URL
+    );
+
+  url.searchParams.set(
+    "call",
+    call
+  );
+
+  url.searchParams.set(
+    "lang",
+    "nb"
+  );
+
+  url.searchParams.set(
+    "tournamentId",
+    String(
+      TOURNAMENT_ID
+    )
+  );
+
+  try {
+    const response =
+      await fetch(
+        url.toString(),
+        {
+          headers: {
+            Accept:
+              "application/json",
+
+            "User-Agent":
+              "Mozilla/5.0",
+
+            Referer:
+              "https://fotballfest.cupmanager.net/",
+          },
+
+          cache:
+            "no-store",
+        }
+      );
+
+    const body =
+      await response.text();
+
+    if (
+      !response.ok
+    ) {
       return NextResponse.json(
         {
-          error: "CupManager request failed",
-          cupManagerStatus: response.status,
+          error:
+            "CupManager request failed",
+
+          cupManagerStatus:
+            response.status,
         },
-        { status: 502 }
+        {
+          status: 502,
+        }
       );
     }
 
-    const data = JSON.parse(body) as CupManagerResponse;
+    const data: unknown =
+      JSON.parse(
+        body
+      );
 
-    const responses = data.responses ?? {};
-
-    const categories: Category[] = Object.values(responses)
-      .map((item) => item.entity)
-      .filter(
-        (entity): entity is Required<
-          Pick<
-            CategoryEntity,
-            "__typename" | "id" | "name" | "shortName" | "gender" | "age"
-          >
-        > =>
-          entity?.__typename === "Category" &&
-          typeof entity.id === "number" &&
-          typeof entity.name === "string" &&
-          typeof entity.shortName === "string" &&
-          typeof entity.gender === "string" &&
-          typeof entity.age === "number"
+    const responses =
+      isRecord(data) &&
+      isRecord(
+        data.responses
       )
-      .map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        shortName: entity.shortName,
-        gender:
-          entity.gender === "women"
-            ? ("Girls" as const)
-            : ("Boys" as const),
-        age: entity.age,
-      }));
+        ? data.responses
+        : {};
 
-    const uniqueCategories = Array.from(
-      new Map(
-        categories.map((category) => [category.id, category])
-      ).values()
-    ).sort((a, b) => {
-      if (a.gender !== b.gender) {
-        return a.gender.localeCompare(b.gender);
+    const selectedTeam =
+      getSelectedTeam(
+        responses,
+        teamId
+      );
+
+    const matches:
+      MatchSummary[] =
+        [];
+
+    for (
+      const [key, item]
+      of Object.entries(
+        responses
+      )
+    ) {
+      if (
+        !key.startsWith(
+          "Match({id:"
+        )
+      ) {
+        continue;
       }
 
-      return a.age - b.age;
-    });
+      if (
+        !isRecord(
+          item
+        )
+      ) {
+        continue;
+      }
 
-    const ages = Array.from(
-      new Set(uniqueCategories.map((category) => category.age))
-    ).sort((a, b) => a - b);
+      const entity =
+        item.entity;
+
+      if (
+        !isRecord(
+          entity
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        getString(
+          entity,
+          "__typename"
+        ) !==
+        "Match"
+      ) {
+        continue;
+      }
+
+      const id =
+        getNumber(
+          entity,
+          "id"
+        );
+
+      if (
+        !id
+      ) {
+        continue;
+      }
+
+      const homeReference =
+        getHref(
+          entity,
+          "home"
+        );
+
+      const awayReference =
+        getHref(
+          entity,
+          "away"
+        );
+
+      const homeActor =
+        getEntity(
+          responses,
+          homeReference
+        );
+
+      const awayActor =
+        getEntity(
+          responses,
+          awayReference
+        );
+
+      const homeTeam =
+        getTeamFromActor(
+          homeActor,
+          responses
+        );
+
+      const awayTeam =
+        getTeamFromActor(
+          awayActor,
+          responses
+        );
+
+      let homeAway:
+        | "home"
+        | "away"
+        | "unknown" =
+          "unknown";
+
+      let opponent =
+        awayTeam;
+
+      if (
+        homeTeam.id ===
+        teamId
+      ) {
+        homeAway =
+          "home";
+
+        opponent =
+          awayTeam;
+      } else if (
+        awayTeam.id ===
+        teamId
+      ) {
+        homeAway =
+          "away";
+
+        opponent =
+          homeTeam;
+      }
+
+      const resultReference =
+        getHref(
+          entity,
+          "result"
+        );
+
+      const resultEntity =
+        getEntity(
+          responses,
+          resultReference
+        );
+
+      const live =
+        getBoolean(
+          resultEntity,
+          "live"
+        ) ??
+        getBoolean(
+          entity,
+          "live"
+        ) ??
+        false;
+
+      const finished =
+        getBoolean(
+          resultEntity,
+          "finished"
+        ) ??
+        getBoolean(
+          entity,
+          "finished"
+        ) ??
+        false;
+
+      const scheduled =
+        getBoolean(
+          entity,
+          "isScheduled"
+        ) ??
+        true;
+
+      const divisionReference =
+        getHref(
+          entity,
+          "division"
+        );
+
+      const divisionEntity =
+        getEntity(
+          responses,
+          divisionReference
+        );
+
+      const divisionName =
+        getLocalizedText(
+          divisionEntity
+            ?.name
+        ) ??
+        null;
+
+      const group =
+        getGroup(
+          divisionName
+        );
+
+      const stageName =
+        getStageName(
+          entity,
+          responses,
+          divisionEntity
+        );
+
+      const roundName =
+        getRoundName(
+          entity,
+          responses
+        );
+
+      const competitionLabel =
+        getCompetitionLabel(
+          group,
+          stageName,
+          roundName
+        );
+
+      const matchNumberValue =
+        entity.matchNr;
+
+      const matchNumber =
+        typeof matchNumberValue ===
+          "string"
+          ? matchNumberValue
+          : typeof matchNumberValue ===
+              "number"
+            ? String(
+                matchNumberValue
+              )
+            : null;
+
+      matches.push({
+        id,
+        matchNumber,
+
+        selectedTeam,
+        opponent,
+
+        homeTeam,
+        awayTeam,
+
+        homeAway,
+
+        start:
+          getNumber(
+            entity,
+            "start"
+          ) ??
+          null,
+
+        end:
+          getNumber(
+            entity,
+            "end"
+          ) ??
+          null,
+
+        duration:
+          getNumber(
+            entity,
+            "duration"
+          ) ??
+          null,
+
+        arena:
+          getArena(
+            entity,
+            responses
+          ),
+
+        score:
+          getResult(
+            entity,
+            responses,
+            teamId,
+            homeTeam.id,
+            awayTeam.id
+          ),
+
+        live,
+        finished,
+        scheduled,
+
+        status:
+          getStatus(
+            live,
+            finished
+          ),
+
+        group,
+        stageName,
+        roundName,
+        competitionLabel,
+
+        nextMatchWinner:
+          getHref(
+            entity,
+            "nextMatchWinner"
+          ) ??
+          null,
+
+        nextMatchLoser:
+          getHref(
+            entity,
+            "nextMatchLoser"
+          ) ??
+          null,
+      });
+    }
+
+    const uniqueMatches =
+      Array.from(
+        new Map(
+          matches.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
+        ).values()
+      ).sort(
+        (a, b) =>
+          (a.start ?? 0) -
+          (b.start ?? 0)
+      );
+
+    const confirmedMatches =
+      uniqueMatches.filter(
+        (match) =>
+          match.homeAway !==
+          "unknown"
+      );
+
+    const possibleMatches =
+      uniqueMatches.filter(
+        (match) =>
+          match.homeAway ===
+            "unknown" &&
+          match.status !==
+            "played"
+      );
+
+    const liveMatches =
+      confirmedMatches.filter(
+        (match) =>
+          match.status ===
+          "live"
+      );
+
+    const upcomingMatches =
+      confirmedMatches.filter(
+        (match) =>
+          match.status ===
+          "upcoming"
+      );
+
+    const playedMatches =
+      confirmedMatches
+        .filter(
+          (match) =>
+            match.status ===
+            "played"
+        )
+        .sort(
+          (a, b) =>
+            (b.start ?? 0) -
+            (a.start ?? 0)
+        );
 
     return NextResponse.json({
       ok: true,
-      tournament: "Fotballfest 2026",
-      tournamentId: 75678338,
-      count: uniqueCategories.length,
-      ages,
-      categories: uniqueCategories,
+
+      tournament:
+        "Fotballfest 2026",
+
+      tournamentId:
+        TOURNAMENT_ID,
+
+      team:
+        selectedTeam,
+
+      count:
+        uniqueMatches.length,
+
+      counts: {
+        live:
+          liveMatches.length,
+
+        upcoming:
+          upcomingMatches.length,
+
+        played:
+          playedMatches.length,
+
+        possible:
+          possibleMatches.length,
+      },
+
+      live:
+        liveMatches,
+
+      upcoming:
+        upcomingMatches,
+
+      played:
+        playedMatches,
+
+      possible:
+        possibleMatches,
+
+      matches:
+        uniqueMatches,
     });
   } catch (error) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
+          error instanceof
+            Error
             ? error.message
             : "Unknown CupManager error",
+
+        teamId,
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
