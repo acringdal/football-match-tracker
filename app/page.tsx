@@ -202,17 +202,16 @@ function withClassLabel(
   }));
 }
 
-function hasSafeCompetitionLabel(
-  value: string | null | undefined
+function uniqueMatches(
+  matches: DisplayMatch[]
 ) {
-  if (!value) {
-    return false;
-  }
-
-  return (
-    !value.includes("Match(") &&
-    !value.includes("Stage(") &&
-    !value.includes("$")
+  return Array.from(
+    new Map(
+      matches.map((match) => [
+        match.id,
+        match,
+      ])
+    ).values()
   );
 }
 
@@ -241,17 +240,22 @@ function groupByDay(
   );
 }
 
-function uniqueMatches(
-  matches: DisplayMatch[]
+function safeCompetitionLabel(
+  value: string | null | undefined
 ) {
-  return Array.from(
-    new Map(
-      matches.map((match) => [
-        match.id,
-        match,
-      ])
-    ).values()
-  );
+  if (!value) {
+    return null;
+  }
+
+  if (
+    value.includes("Match(") ||
+    value.includes("Stage(") ||
+    value.includes("$")
+  ) {
+    return null;
+  }
+
+  return value;
 }
 
 function ScoreRows({
@@ -262,30 +266,6 @@ function ScoreRows({
   if (!match.score) {
     return null;
   }
-
-  const homeName =
-    displayTeamName(match.homeTeam);
-
-  const awayName =
-    displayTeamName(match.awayTeam);
-
-  const scoreStyle = {
-    width: "34px",
-    textAlign: "left" as const,
-    fontWeight: 800,
-    fontSize: "18px",
-    fontVariantNumeric:
-      "tabular-nums",
-  };
-
-  const teamStyle = {
-    minWidth: 0,
-    fontWeight: 700,
-    fontSize: "16px",
-    lineHeight: 1.35,
-    overflowWrap:
-      "anywhere" as const,
-  };
 
   return (
     <div
@@ -299,19 +279,51 @@ function ScoreRows({
         marginTop: "8px",
       }}
     >
-      <div style={teamStyle}>
-        {homeName}
+      <div
+        style={{
+          minWidth: 0,
+          fontWeight: 700,
+          fontSize: "16px",
+          lineHeight: 1.35,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {displayTeamName(match.homeTeam)}
       </div>
 
-      <div style={scoreStyle}>
+      <div
+        style={{
+          width: "34px",
+          textAlign: "left",
+          fontWeight: 800,
+          fontSize: "18px",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {match.score.home}
       </div>
 
-      <div style={teamStyle}>
-        {awayName}
+      <div
+        style={{
+          minWidth: 0,
+          fontWeight: 700,
+          fontSize: "16px",
+          lineHeight: 1.35,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {displayTeamName(match.awayTeam)}
       </div>
 
-      <div style={scoreStyle}>
+      <div
+        style={{
+          width: "34px",
+          textAlign: "left",
+          fontWeight: 800,
+          fontSize: "18px",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {match.score.away}
       </div>
     </div>
@@ -323,25 +335,22 @@ function MatchMeta({
 }: {
   match: DisplayMatch;
 }) {
-  const competitionLabel =
-    hasSafeCompetitionLabel(
+  const competition =
+    safeCompetitionLabel(
       match.competitionLabel
-    )
-      ? match.competitionLabel
-      : null;
-
-  const hasPrimaryMetadata =
-    Boolean(
-      match.classLabel ||
-        competitionLabel
     );
 
-  const hasMatchNumber =
-    Boolean(match.matchNumber);
+  const primaryParts = [
+    match.classLabel,
+    competition,
+  ].filter(
+    (item): item is string =>
+      Boolean(item)
+  );
 
   if (
-    !hasPrimaryMetadata &&
-    !hasMatchNumber
+    primaryParts.length === 0 &&
+    !match.matchNumber
   ) {
     return null;
   }
@@ -355,23 +364,18 @@ function MatchMeta({
         lineHeight: 1.4,
       }}
     >
-      {hasPrimaryMetadata && (
+      {primaryParts.length > 0 && (
         <strong>
-          {[
-            match.classLabel,
-            competitionLabel,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
+          {primaryParts.join(" · ")}
         </strong>
       )}
 
-      {hasPrimaryMetadata &&
-        hasMatchNumber && (
+      {primaryParts.length > 0 &&
+        match.matchNumber && (
           <span> · </span>
         )}
 
-      {hasMatchNumber && (
+      {match.matchNumber && (
         <span
           style={{
             fontWeight: 400,
@@ -394,9 +398,6 @@ function MatchCard({
   const selectedTeamName =
     match.selectedTeam?.name ??
     "Favourite team";
-
-  const hasScore =
-    Boolean(match.score);
 
   return (
     <article
@@ -439,7 +440,7 @@ function MatchCard({
         )}
       </div>
 
-      {hasScore ? (
+      {match.score ? (
         <ScoreRows match={match} />
       ) : (
         <div
@@ -486,8 +487,7 @@ function MatchCard({
             fontSize: "13px",
           }}
         >
-          ↓ {selectedTeamName} can
-          reach this match
+          ↓ {selectedTeamName} can reach this match
         </div>
       )}
     </article>
@@ -651,10 +651,8 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
+          error instanceof DOMException &&
+          error.name === "AbortError"
         ) {
           return;
         }
@@ -691,8 +689,7 @@ export default function Home() {
           categories
             .filter(
               (category) =>
-                category.gender ===
-                gender
+                category.gender === gender
             )
             .map(
               (category) =>
@@ -711,8 +708,7 @@ export default function Home() {
     useMemo(() => {
       return categories.find(
         (category) =>
-          category.gender ===
-            gender &&
+          category.gender === gender &&
           category.age === age
       );
     }, [
@@ -779,10 +775,8 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
+          error instanceof DOMException &&
+          error.name === "AbortError"
         ) {
           return;
         }
@@ -875,10 +869,8 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
+          error instanceof DOMException &&
+          error.name === "AbortError"
         ) {
           return;
         }
@@ -1345,6 +1337,7 @@ export default function Home() {
                     background: "#166534",
                     color: "white",
                     fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
                   Add team
@@ -1356,8 +1349,7 @@ export default function Home() {
             favourites.length > 0 &&
             matchesTab ===
               "live-upcoming" &&
-            liveAndUpcoming.length ===
-              0 && (
+            liveAndUpcoming.length === 0 && (
               <p
                 style={{
                   color: "#667085",
@@ -1379,8 +1371,7 @@ export default function Home() {
             favourites.length > 0 &&
             matchesTab ===
               "played" &&
-            playedMatches.length ===
-              0 && (
+            playedMatches.length === 0 && (
               <p
                 style={{
                   color: "#667085",
@@ -1400,11 +1391,9 @@ export default function Home() {
         </>
       )}
 
-      {tab ===
-        "qualification" && (
+      {tab === "qualification" && (
         <>
-          {qualificationMatches.length ===
-          0 ? (
+          {qualificationMatches.length === 0 ? (
             <div
               style={{
                 background: "white",
