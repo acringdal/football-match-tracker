@@ -1,35 +1,26 @@
-"use client";
+import { NextRequest, NextResponse } from "next/server";
 
-import { useEffect, useMemo, useState } from "react";
+const TOURNAMENT_ID = 75678338;
 
-type Gender = "Girls" | "Boys";
-type Tab = "matches" | "qualification" | "teams";
-type MatchesTab = "live-upcoming" | "played";
+const BASE_URL =
+  "https://fotballfest.cupmanager.net/rest/results_api/call";
 
-type Category = {
-  id: number;
-  name: string;
-  shortName: string;
-  gender: Gender;
-  age: number;
-};
+type RecordValue = Record<string, unknown>;
 
-type Team = {
-  id: number;
-  name: string;
-  fullName: string | null;
-  categoryName: string | null;
-  suffix: string | null;
-};
-
-type MatchTeam = {
+type TeamSummary = {
   id: number | null;
-  name: string | null;
+  name: string;
   winnerOfMatch?: string | null;
   qualificationLabel?: string | null;
 };
 
-type MatchScore = {
+type ArenaSummary = {
+  id: number | null;
+  name: string | null;
+  locationId: number | null;
+};
+
+type ScoreSummary = {
   home: number;
   away: number;
   for: number | null;
@@ -38,1836 +29,1436 @@ type MatchScore = {
   walkover: boolean;
 };
 
-type Match = {
+type MatchSummary = {
   id: number;
-  matchNumber?: string | null;
+  matchNumber: string | null;
 
-  selectedTeam?: {
-    id: number;
-    name: string;
-  };
+  selectedTeam: TeamSummary;
+  opponent: TeamSummary;
 
-  opponent?: {
-    id: number | null;
-    name: string | null;
-  };
+  homeTeam: TeamSummary;
+  awayTeam: TeamSummary;
 
-  homeTeam?: MatchTeam;
-  awayTeam?: MatchTeam;
-
-  homeAway?: "home" | "away" | "unknown";
+  homeAway: "home" | "away" | "unknown";
 
   start: number | null;
   end: number | null;
-  duration?: number | null;
+  duration: number | null;
 
-  arena?: {
-    id: number | null;
-    name: string | null;
-    locationId: number | null;
-  } | null;
+  arena: ArenaSummary;
 
-  score?: MatchScore | null;
+  score: ScoreSummary | null;
 
-  live?: boolean;
-  finished?: boolean;
-  scheduled?: boolean;
+  live: boolean;
+  finished: boolean;
+  scheduled: boolean;
 
-  status?: "live" | "upcoming" | "played";
+  status: "live" | "played" | "upcoming";
 
-  group?: string | null;
-  stageName?: string | null;
-  roundName?: string | null;
-  competitionLabel?: string | null;
+  group: string | null;
+  stageName: string | null;
+  roundName: string | null;
+  competitionLabel: string | null;
+
+  nextMatchWinner: string | null;
+  nextMatchLoser: string | null;
 };
 
-type CategoriesResponse = {
-  ok: boolean;
-  categories?: Category[];
-};
-
-type TeamsResponse = {
-  ok: boolean;
-  categoryId: number;
-  teams?: Team[];
-};
-
-type MatchesResponse = {
-  ok: boolean;
-  live?: Match[];
-  upcoming?: Match[];
-  played?: Match[];
-  possible?: Match[];
-};
-
-type TeamMatches = {
-  team: Team;
-  response: MatchesResponse;
-};
-
-const FAVOURITES_STORAGE_KEY =
-  "fotballfest-favourites";
-
-function formatDay(timestamp: number | null) {
-  if (!timestamp) {
-    return "DATE TBD";
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: "Europe/Oslo",
-  })
-    .format(new Date(timestamp))
-    .toUpperCase();
+function isRecord(
+  value: unknown
+): value is RecordValue {
+  return (
+    typeof value === "object" &&
+    value !== null
+  );
 }
 
-function formatTime(timestamp: number | null) {
-  if (!timestamp) {
-    return "--:--";
+function getString(
+  value: unknown,
+  key: string
+): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Europe/Oslo",
-  }).format(new Date(timestamp));
+  const item = value[key];
+
+  return typeof item === "string"
+    ? item
+    : undefined;
 }
 
-function matchTime(match: Match) {
-  return `${formatTime(match.start)}–${formatTime(
-    match.end
-  )}`;
+function getNumber(
+  value: unknown,
+  key: string
+): number | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const item = value[key];
+
+  return typeof item === "number"
+    ? item
+    : undefined;
 }
 
-function displayTeamName(
-  team: MatchTeam | undefined,
-  fallback = "TBD"
-) {
-  if (!team) {
-    return fallback;
+function getBoolean(
+  value: unknown,
+  key: string
+): boolean | undefined {
+  if (!isRecord(value)) {
+    return undefined;
   }
 
-  if (team.qualificationLabel) {
-    return `🏆 ${team.qualificationLabel}`;
-  }
+  const item = value[key];
 
-  if (team.winnerOfMatch) {
-    return `🏆 #${team.winnerOfMatch}`;
-  }
-
-  return team.name ?? fallback;
+  return typeof item === "boolean"
+    ? item
+    : undefined;
 }
 
-function getClassLabel(
-  match: Match,
-  favourites: Team[]
-) {
-  const selectedTeamId =
-    match.selectedTeam?.id;
+function getRecord(
+  value: unknown,
+  key: string
+): RecordValue | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
 
-  if (!selectedTeamId) {
+  const item = value[key];
+
+  return isRecord(item)
+    ? item
+    : undefined;
+}
+
+function getHref(
+  value: unknown,
+  key: string
+): string | undefined {
+  const reference =
+    getRecord(value, key);
+
+  return getString(
+    reference,
+    "href"
+  );
+}
+
+function getEntity(
+  responses: RecordValue,
+  reference: string | undefined
+): RecordValue | undefined {
+  if (!reference) {
+    return undefined;
+  }
+
+  const item =
+    responses[reference];
+
+  if (!isRecord(item)) {
+    return undefined;
+  }
+
+  const entity =
+    item.entity;
+
+  return isRecord(entity)
+    ? entity
+    : undefined;
+}
+
+function getResponseEntity(
+  responses: RecordValue,
+  reference: string | undefined
+): unknown {
+  if (!reference) {
+    return undefined;
+  }
+
+  const item =
+    responses[reference];
+
+  if (!isRecord(item)) {
+    return undefined;
+  }
+
+  return item.entity;
+}
+
+function extractIdFromReference(
+  reference: string | undefined,
+  pattern: RegExp
+): number | null {
+  if (!reference) {
     return null;
   }
 
-  const favourite =
-    favourites.find(
-      (team) =>
-        team.id === selectedTeamId
+  const match =
+    reference.match(pattern);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const id =
+    Number(match[1]);
+
+  return Number.isFinite(id)
+    ? id
+    : null;
+}
+
+function getLocalizedText(
+  value: unknown
+): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return (
+    getString(value, "nb") ??
+    getString(value, "no") ??
+    getString(value, "en") ??
+    Object.entries(value)
+      .filter(
+        ([key]) =>
+          key !== "__typename" &&
+          key !== "href"
+      )
+      .map(([, item]) => item)
+      .find(
+        (item): item is string =>
+          typeof item === "string"
+      )
+  );
+}
+
+function getTeamName(
+  entity: RecordValue | undefined
+): string | null {
+  if (!entity) {
+    return null;
+  }
+
+  const name =
+    getRecord(entity, "name");
+
+  return (
+    getString(name, "clubName") ??
+    getString(name, "fullName") ??
+    getLocalizedText(name) ??
+    getString(entity, "originalName") ??
+    getString(entity, "shortName") ??
+    null
+  );
+}
+
+function getWinnerMatchNumber(
+  name: string | null
+): string | null {
+  if (!name) {
+    return null;
+  }
+
+  const match =
+    name.match(
+      /^(?:Vinn\.?|Winner(?: of)?(?: match)?)[\s#]*(\d+)$/i
     );
 
-  if (!favourite) {
+  return match?.[1] ?? null;
+}
+
+function getTeamFromActor(
+  actorEntity: RecordValue | undefined,
+  responses: RecordValue
+): TeamSummary {
+  if (!actorEntity) {
+    return {
+      id: null,
+      name: "To be decided",
+      winnerOfMatch: null,
+      qualificationLabel: null,
+    };
+  }
+
+  const teamReference =
+    getHref(
+      actorEntity,
+      "team"
+    );
+
+  const teamEntity =
+    getEntity(
+      responses,
+      teamReference
+    );
+
+  const teamId =
+    getNumber(
+      teamEntity,
+      "id"
+    ) ??
+    extractIdFromReference(
+      teamReference,
+      /Team\(\{id:(\d+)\}\)/
+    );
+
+  const actorName =
+    getLocalizedText(
+      actorEntity.name
+    );
+
+  const teamName =
+    getTeamName(
+      teamEntity
+    ) ??
+    actorName ??
+    getString(
+      actorEntity,
+      "originalName"
+    ) ??
+    getString(
+      actorEntity,
+      "shortName"
+    ) ??
+    "To be decided";
+
+  return {
+    id: teamId,
+    name: teamName,
+    winnerOfMatch:
+      getWinnerMatchNumber(
+        teamName
+      ),
+    qualificationLabel: null,
+  };
+}
+
+function getSelectedTeam(
+  responses: RecordValue,
+  teamId: number
+): TeamSummary {
+  const reference =
+    `Team({id:${teamId}})`;
+
+  const entity =
+    getEntity(
+      responses,
+      reference
+    );
+
+  return {
+    id: teamId,
+    name:
+      getTeamName(
+        entity
+      ) ??
+      `Team ${teamId}`,
+  };
+}
+
+function getArena(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): ArenaSummary {
+  const arenaReference =
+    getHref(
+      matchEntity,
+      "arena"
+    );
+
+  const arenaEntity =
+    getEntity(
+      responses,
+      arenaReference
+    );
+
+  const arenaId =
+    getNumber(
+      arenaEntity,
+      "id"
+    ) ??
+    extractIdFromReference(
+      arenaReference,
+      /Arena\(\{id:(\d+)/
+    );
+
+  const locationReference =
+    getHref(
+      arenaEntity,
+      "location"
+    );
+
+  const locationId =
+    extractIdFromReference(
+      locationReference,
+      /Location\(\{id:(\d+)/
+    );
+
+  const arenaName =
+    getString(
+      arenaEntity,
+      "completeName"
+    ) ??
+    getString(
+      arenaEntity,
+      "fieldName"
+    ) ??
+    getString(
+      arenaEntity,
+      "name"
+    ) ??
+    null;
+
+  return {
+    id: arenaId,
+    name: arenaName,
+    locationId,
+  };
+}
+
+function getResult(
+  matchEntity: RecordValue,
+  responses: RecordValue,
+  selectedTeamId: number,
+  homeTeamId: number | null,
+  awayTeamId: number | null
+): ScoreSummary | null {
+  const resultReference =
+    getHref(
+      matchEntity,
+      "result"
+    );
+
+  const resultEntity =
+    getEntity(
+      responses,
+      resultReference
+    );
+
+  if (!resultEntity) {
     return null;
   }
 
-  const source =
-    favourite.categoryName ??
-    favourite.fullName ??
+  const resultLive =
+    getBoolean(
+      resultEntity,
+      "live"
+    ) ?? false;
+
+  const resultFinished =
+    getBoolean(
+      resultEntity,
+      "finished"
+    ) ?? false;
+
+  if (
+    !resultLive &&
+    !resultFinished
+  ) {
+    return null;
+  }
+
+  const homeGoals =
+    getNumber(
+      resultEntity,
+      "homeGoals"
+    ) ?? 0;
+
+  const awayGoals =
+    getNumber(
+      resultEntity,
+      "awayGoals"
+    ) ?? 0;
+
+  let goalsFor: number | null =
+    null;
+
+  let goalsAgainst: number | null =
+    null;
+
+  if (
+    homeTeamId ===
+    selectedTeamId
+  ) {
+    goalsFor =
+      homeGoals;
+
+    goalsAgainst =
+      awayGoals;
+  }
+
+  if (
+    awayTeamId ===
+    selectedTeamId
+  ) {
+    goalsFor =
+      awayGoals;
+
+    goalsAgainst =
+      homeGoals;
+  }
+
+  return {
+    home: homeGoals,
+    away: awayGoals,
+    for: goalsFor,
+    against: goalsAgainst,
+
+    penalties:
+      getBoolean(
+        resultEntity,
+        "penalties"
+      ) ?? false,
+
+    walkover:
+      getBoolean(
+        resultEntity,
+        "walkover"
+      ) ?? false,
+  };
+}
+
+function getStatus(
+  live: boolean,
+  finished: boolean
+): "live" | "played" | "upcoming" {
+  if (live) {
+    return "live";
+  }
+
+  if (finished) {
+    return "played";
+  }
+
+  return "upcoming";
+}
+
+function getGroup(
+  divisionName: string | null
+): string | null {
+  if (!divisionName) {
+    return null;
+  }
+
+  const match =
+    divisionName.match(
+      /(?:Pulje|Group)\s+([A-ZÆØÅ0-9]+)/i
+    );
+
+  return (
+    match?.[1]?.toUpperCase() ??
+    null
+  );
+}
+
+function getRoundName(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): string | null {
+  const roundNameReference =
+    getHref(
+      matchEntity,
+      "roundName"
+    );
+
+  if (
+    !roundNameReference
+  ) {
+    return null;
+  }
+
+  const roundNameEntity =
+    getEntity(
+      responses,
+      roundNameReference
+    );
+
+  if (
+    !roundNameEntity
+  ) {
+    return null;
+  }
+
+  const name =
+    getRecord(
+      roundNameEntity,
+      "name"
+    );
+
+  const resolvedName =
+    getLocalizedText(
+      name
+    );
+
+  if (
+    resolvedName
+  ) {
+    return resolvedName;
+  }
+
+  const definite =
+    getRecord(
+      roundNameEntity,
+      "definite"
+    );
+
+  return (
+    getLocalizedText(
+      definite
+    ) ??
+    null
+  );
+}
+
+function getStageName(
+  matchEntity: RecordValue,
+  responses: RecordValue,
+  divisionEntity: RecordValue | undefined
+): string | null {
+  const matchStageReference =
+    getHref(
+      matchEntity,
+      "stage"
+    );
+
+  if (
+    matchStageReference
+  ) {
+    const stageEntity =
+      getEntity(
+        responses,
+        matchStageReference
+      );
+
+    if (
+      stageEntity
+    ) {
+      const directName =
+        getLocalizedText(
+          stageEntity.name
+        );
+
+      if (
+        directName &&
+        !directName.startsWith(
+          "Stage("
+        )
+      ) {
+        return directName;
+      }
+
+      const nameReference =
+        getHref(
+          stageEntity,
+          "name"
+        );
+
+      const nameResponse =
+        getResponseEntity(
+          responses,
+          nameReference
+        );
+
+      const resolvedName =
+        getLocalizedText(
+          nameResponse
+        );
+
+      if (
+        resolvedName
+      ) {
+        return resolvedName;
+      }
+
+      if (
+        isRecord(
+          nameResponse
+        )
+      ) {
+        const nested =
+          getLocalizedText(
+            nameResponse.name
+          );
+
+        if (
+          nested
+        ) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  const divisionStageReference =
+    getHref(
+      divisionEntity,
+      "stage"
+    );
+
+  if (
+    divisionStageReference
+  ) {
+    const divisionStageEntity =
+      getEntity(
+        responses,
+        divisionStageReference
+      );
+
+    if (
+      divisionStageEntity
+    ) {
+      const directName =
+        getLocalizedText(
+          divisionStageEntity.name
+        );
+
+      if (
+        directName &&
+        !directName.startsWith(
+          "Stage("
+        )
+      ) {
+        return directName;
+      }
+
+      const stageNameReference =
+        getHref(
+          divisionStageEntity,
+          "name"
+        );
+
+      const stageNameResponse =
+        getResponseEntity(
+          responses,
+          stageNameReference
+        );
+
+      const resolved =
+        getLocalizedText(
+          stageNameResponse
+        );
+
+      if (
+        resolved
+      ) {
+        return resolved;
+      }
+
+      if (
+        isRecord(
+          stageNameResponse
+        )
+      ) {
+        const nested =
+          getLocalizedText(
+            stageNameResponse.name
+          );
+
+        if (
+          nested
+        ) {
+          return nested;
+        }
+      }
+    }
+  }
+
+  const divisionStage =
+    getRecord(
+      divisionEntity,
+      "stage"
+    );
+
+  if (
+    divisionStage
+  ) {
+    const direct =
+      getLocalizedText(
+        divisionStage.name
+      );
+
+    if (
+      direct
+    ) {
+      return direct;
+    }
+  }
+
+  return null;
+}
+
+function getCompetitionLabel(
+  group: string | null,
+  stageName: string | null,
+  roundName: string | null
+): string | null {
+  if (group) {
+    return `Group ${group}`;
+  }
+
+  const stageValue =
+    stageName
+      ?.trim()
+      .toLowerCase() ??
     "";
 
-  const classMatch =
-    source.match(
-      /\b([JG]\s*\d{2})\b/i
-    );
+  const roundValue =
+    roundName
+      ?.trim()
+      .toLowerCase() ??
+    "";
 
-  if (!classMatch?.[1]) {
-    return null;
-  }
-
-  return classMatch[1]
-    .replace(/\s+/g, "")
-    .toUpperCase();
-}
-
-function groupByDay(matches: Match[]) {
-  const days = new Map<string, Match[]>();
-
-  for (const match of matches) {
-    const day =
-      formatDay(match.start);
-
-    const existing =
-      days.get(day) ?? [];
-
-    existing.push(match);
-    days.set(day, existing);
-  }
-
-  return Array.from(
-    days.entries()
-  );
-}
-
-function ScoreRows({
-  match,
-}: {
-  match: Match;
-}) {
-  if (!match.score) {
-    return null;
-  }
-
-  const homeName =
-    displayTeamName(match.homeTeam);
-
-  const awayName =
-    displayTeamName(match.awayTeam);
-
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns:
-          "minmax(0, 1fr) 34px",
-        columnGap: "12px",
-        rowGap: "5px",
-        alignItems: "center",
-        marginTop: "8px",
-      }}
-    >
-      <div
-        style={{
-          minWidth: 0,
-          fontWeight: 700,
-          fontSize: "16px",
-          overflowWrap: "anywhere",
-        }}
-      >
-        {homeName}
-      </div>
-
-      <div
-        style={{
-          width: "34px",
-          textAlign: "left",
-          fontWeight: 800,
-          fontSize: "18px",
-          fontVariantNumeric:
-            "tabular-nums",
-        }}
-      >
-        {match.score.home}
-      </div>
-
-      <div
-        style={{
-          minWidth: 0,
-          fontWeight: 700,
-          fontSize: "16px",
-          overflowWrap: "anywhere",
-        }}
-      >
-        {awayName}
-      </div>
-
-      <div
-        style={{
-          width: "34px",
-          textAlign: "left",
-          fontWeight: 800,
-          fontSize: "18px",
-          fontVariantNumeric:
-            "tabular-nums",
-        }}
-      >
-        {match.score.away}
-      </div>
-    </div>
-  );
-}
-
-function MatchMeta({
-  match,
-  classLabel,
-}: {
-  match: Match;
-  classLabel: string | null;
-}) {
-  const textParts: string[] = [];
-
-  if (classLabel) {
-    textParts.push(classLabel);
-  }
+  let playoff = "";
 
   if (
-    match.competitionLabel &&
-    !match.competitionLabel.includes(
-      "Match("
-    ) &&
-    !match.competitionLabel.includes(
-      "Stage("
-    ) &&
-    !match.competitionLabel.includes(
-      "$"
+    stageValue ===
+      "sluttspill a" ||
+    stageValue ===
+      "playoff a" ||
+    stageValue.includes(
+      "sluttspill a"
+    ) ||
+    stageValue.includes(
+      "playoff a"
     )
   ) {
-    textParts.push(
-      match.competitionLabel
-    );
+    playoff = "A";
   }
-
-  const hasMatchNumber =
-    Boolean(match.matchNumber);
 
   if (
-    textParts.length === 0 &&
-    !hasMatchNumber
+    stageValue ===
+      "sluttspill b" ||
+    stageValue ===
+      "playoff b" ||
+    stageValue.includes(
+      "sluttspill b"
+    ) ||
+    stageValue.includes(
+      "playoff b"
+    )
   ) {
-    return null;
+    playoff = "B";
   }
 
-  return (
-    <div
-      style={{
-        marginTop: "8px",
-        fontSize: "14px",
-        color: "#344054",
-        lineHeight: 1.4,
-      }}
-    >
-      {textParts.length > 0 && (
-        <span
-          style={{
-            fontWeight: 600,
-          }}
-        >
-          {textParts.join(" · ")}
-        </span>
-      )}
-
-      {textParts.length > 0 &&
-        hasMatchNumber && (
-          <span> · </span>
-        )}
-
-      {hasMatchNumber && (
-        <span>
-          ⚽ #{match.matchNumber}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function MatchCard({
-  match,
-  classLabel,
-  qualification = false,
-}: {
-  match: Match;
-  classLabel: string | null;
-  qualification?: boolean;
-}) {
-  const selectedTeamName =
-    match.selectedTeam?.name ??
-    "Favourite team";
-
-  const hasScore =
-    Boolean(match.score);
-
-  return (
-    <div
-      style={{
-        background: "white",
-        borderRadius: "12px",
-        padding: "14px",
-        marginBottom: "10px",
-        boxShadow:
-          "0 1px 2px rgba(16,24,40,0.06)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: "14px",
-          color: "#344054",
-          fontWeight: 700,
-        }}
-      >
-        {match.live === true ? (
-          <>
-            <span
-              style={{
-                color: "#b42318",
-              }}
-            >
-              🔴 LIVE
-            </span>
-
-            <span> · </span>
-
-            <span>
-              {matchTime(match)}
-            </span>
-          </>
-        ) : (
-          <span>
-            {matchTime(match)}
-          </span>
-        )}
-      </div>
-
-      {hasScore ? (
-        <ScoreRows match={match} />
-      ) : (
-        <div
-          style={{
-            marginTop: "8px",
-            fontWeight: 700,
-            fontSize: "16px",
-            lineHeight: 1.35,
-            overflowWrap: "anywhere",
-          }}
-        >
-          {displayTeamName(
-            match.homeTeam
-          )}
-
-          {" – "}
-
-          {displayTeamName(
-            match.awayTeam
-          )}
-        </div>
-      )}
-
-      <MatchMeta
-        match={match}
-        classLabel={classLabel}
-      />
-
-      <div
-        style={{
-          marginTop: "5px",
-          fontSize: "14px",
-          color: "#667085",
-        }}
-      >
-        📍{" "}
-        {match.arena?.name ??
-          "Venue TBD"}
-      </div>
-
-      {qualification && (
-        <div
-          style={{
-            marginTop: "9px",
-            color: "#166534",
-            fontWeight: 600,
-            fontSize: "13px",
-          }}
-        >
-          ↓ {selectedTeamName} can
-          reach this match
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function Home() {
-  const [tab, setTab] =
-    useState<Tab>("matches");
-
-  const [
-    matchesTab,
-    setMatchesTab,
-  ] =
-    useState<MatchesTab>(
-      "live-upcoming"
-    );
-
-  const [
-    categories,
-    setCategories,
-  ] =
-    useState<Category[]>([]);
-
-  const [teams, setTeams] =
-    useState<Team[]>([]);
-
-  const [
-    favourites,
-    setFavourites,
-  ] =
-    useState<Team[]>([]);
-
-  const [
-    favouritesLoaded,
-    setFavouritesLoaded,
-  ] =
-    useState(false);
-
-  const [
-    teamMatches,
-    setTeamMatches,
-  ] =
-    useState<TeamMatches[]>([]);
-
-  const [
-    showTeamPicker,
-    setShowTeamPicker,
-  ] =
-    useState(false);
-
-  const [gender, setGender] =
-    useState<Gender>("Girls");
-
-  const [age, setAge] =
-    useState<number>(14);
-
-  const [search, setSearch] =
-    useState("");
-
-  const [
-    categoriesLoading,
-    setCategoriesLoading,
-  ] =
-    useState(true);
-
-  const [
-    teamsLoading,
-    setTeamsLoading,
-  ] =
-    useState(false);
-
-  const [
-    matchesLoading,
-    setMatchesLoading,
-  ] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  useEffect(() => {
-    try {
-      const saved =
-        localStorage.getItem(
-          FAVOURITES_STORAGE_KEY
-        );
-
-      if (saved) {
-        const parsed =
-          JSON.parse(saved);
-
-        if (
-          Array.isArray(parsed)
-        ) {
-          setFavourites(parsed);
-        }
-      }
-    } catch {
-      localStorage.removeItem(
-        FAVOURITES_STORAGE_KEY
-      );
-    } finally {
-      setFavouritesLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!favouritesLoaded) {
-      return;
-    }
-
-    localStorage.setItem(
-      FAVOURITES_STORAGE_KEY,
-      JSON.stringify(favourites)
-    );
-  }, [
-    favourites,
-    favouritesLoaded,
-  ]);
-
-  useEffect(() => {
-    const controller =
-      new AbortController();
-
-    async function loadCategories() {
-      try {
-        setCategoriesLoading(true);
-        setError("");
-
-        const response =
-          await fetch(
-            "/api/cupmanager/categories",
-            {
-              cache: "no-store",
-              signal:
-                controller.signal,
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            "Could not load categories"
-          );
-        }
-
-        const data:
-          CategoriesResponse =
-            await response.json();
-
-        if (
-          !controller.signal.aborted
-        ) {
-          setCategories(
-            Array.isArray(
-              data.categories
-            )
-              ? data.categories
-              : []
-          );
-        }
-      } catch (error) {
-        if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
-        ) {
-          return;
-        }
-
-        if (
-          !controller.signal.aborted
-        ) {
-          setError(
-            "Could not load Fotballfest categories."
-          );
-        }
-      } finally {
-        if (
-          !controller.signal.aborted
-        ) {
-          setCategoriesLoading(
-            false
-          );
-        }
-      }
-    }
-
-    loadCategories();
-
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  const availableAges =
-    useMemo(() => {
-      return Array.from(
-        new Set(
-          categories
-            .filter(
-              (category) =>
-                category.gender ===
-                gender
-            )
-            .map(
-              (category) =>
-                category.age
-            )
-        )
-      ).sort(
-        (a, b) => a - b
-      );
-    }, [
-      categories,
-      gender,
-    ]);
-
-  const selectedCategory =
-    useMemo(() => {
-      return categories.find(
-        (category) =>
-          category.gender ===
-            gender &&
-          category.age === age
-      );
-    }, [
-      categories,
-      gender,
-      age,
-    ]);
-
-  useEffect(() => {
-    if (
-      !showTeamPicker ||
-      !selectedCategory
-    ) {
-      setTeams([]);
-      setTeamsLoading(false);
-      return;
-    }
-
-    const controller =
-      new AbortController();
-
-    const categoryId =
-      selectedCategory.id;
-
-    async function loadTeams() {
-      try {
-        setTeamsLoading(true);
-        setTeams([]);
-        setSearch("");
-        setError("");
-
-        const response =
-          await fetch(
-            `/api/cupmanager/teams?categoryId=${categoryId}`,
-            {
-              cache: "no-store",
-              signal:
-                controller.signal,
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            "Could not load teams"
-          );
-        }
-
-        const data:
-          TeamsResponse =
-            await response.json();
-
-        if (
-          !controller.signal.aborted &&
-          data.categoryId ===
-            categoryId
-        ) {
-          setTeams(
-            Array.isArray(
-              data.teams
-            )
-              ? data.teams
-              : []
-          );
-        }
-      } catch (error) {
-        if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
-        ) {
-          return;
-        }
-
-        if (
-          !controller.signal.aborted
-        ) {
-          setTeams([]);
-          setError(
-            "Could not load teams."
-          );
-        }
-      } finally {
-        if (
-          !controller.signal.aborted
-        ) {
-          setTeamsLoading(false);
-        }
-      }
-    }
-
-    loadTeams();
-
-    return () => {
-      controller.abort();
-    };
-  }, [
-    showTeamPicker,
-    selectedCategory,
-  ]);
-
-  useEffect(() => {
-    if (!favouritesLoaded) {
-      return;
-    }
-
-    if (
-      favourites.length === 0
-    ) {
-      setTeamMatches([]);
-      setMatchesLoading(false);
-      return;
-    }
-
-    const controller =
-      new AbortController();
-
-    async function loadMatches() {
-      try {
-        setMatchesLoading(true);
-        setError("");
-
-        const results =
-          await Promise.all(
-            favourites.map(
-              async (team) => {
-                const response =
-                  await fetch(
-                    `/api/cupmanager/matches?teamId=${team.id}`,
-                    {
-                      cache:
-                        "no-store",
-                      signal:
-                        controller.signal,
-                    }
-                  );
-
-                if (!response.ok) {
-                  throw new Error(
-                    "Could not load matches"
-                  );
-                }
-
-                const data:
-                  MatchesResponse =
-                    await response.json();
-
-                return {
-                  team,
-                  response: data,
-                };
-              }
-            )
-          );
-
-        if (
-          !controller.signal.aborted
-        ) {
-          setTeamMatches(results);
-        }
-      } catch (error) {
-        if (
-          error instanceof
-            DOMException &&
-          error.name ===
-            "AbortError"
-        ) {
-          return;
-        }
-
-        if (
-          !controller.signal.aborted
-        ) {
-          setTeamMatches([]);
-          setError(
-            "Could not load matches."
-          );
-        }
-      } finally {
-        if (
-          !controller.signal.aborted
-        ) {
-          setMatchesLoading(false);
-        }
-      }
-    }
-
-    loadMatches();
-
-    return () => {
-      controller.abort();
-    };
-  }, [
-    favourites,
-    favouritesLoaded,
-  ]);
-
-  const filteredTeams =
-    useMemo(() => {
-      const text =
-        search
-          .trim()
-          .toLowerCase();
-
-      if (!text) {
-        return teams;
-      }
-
-      return teams.filter(
-        (team) =>
-          [
-            team.name,
-            team.fullName,
-            team.categoryName,
-            team.suffix,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(text)
-      );
-    }, [
-      teams,
-      search,
-    ]);
-
-  const liveMatches =
-    useMemo(() => {
-      const all =
-        teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.live
-            )
-              ? response.live
-              : []
-        );
-
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
-        (a, b) =>
-          (a.start ?? 0) -
-          (b.start ?? 0)
-      );
-    }, [teamMatches]);
-
-  const upcomingMatches =
-    useMemo(() => {
-      const all =
-        teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.upcoming
-            )
-              ? response.upcoming
-              : []
-        );
-
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
-        (a, b) =>
-          (a.start ?? 0) -
-          (b.start ?? 0)
-      );
-    }, [teamMatches]);
-
-  const liveAndUpcoming =
-    useMemo(() => {
-      return Array.from(
-        new Map(
-          [
-            ...liveMatches,
-            ...upcomingMatches,
-          ].map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
-        (a, b) =>
-          (a.start ?? 0) -
-          (b.start ?? 0)
-      );
-    }, [
-      liveMatches,
-      upcomingMatches,
-    ]);
-
-  const playedMatches =
-    useMemo(() => {
-      const all =
-        teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.played
-            )
-              ? response.played
-              : []
-        );
-
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
-        (a, b) =>
-          (b.start ?? 0) -
-          (a.start ?? 0)
-      );
-    }, [teamMatches]);
-
-  const qualificationMatches =
-    useMemo(() => {
-      const all =
-        teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.possible
-            )
-              ? response.possible
-              : []
-        );
-
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
-        (a, b) =>
-          (a.start ?? 0) -
-          (b.start ?? 0)
-      );
-    }, [teamMatches]);
-
-  function handleGenderChange(
-    value: Gender
+  let round = "";
+
+  if (
+    roundValue.includes(
+      "1/4"
+    ) ||
+    roundValue.includes(
+      "kvart"
+    ) ||
+    roundValue.includes(
+      "quarter"
+    )
   ) {
-    setGender(value);
-    setTeams([]);
-    setSearch("");
-    setError("");
+    round =
+      "Quarterfinal";
+  } else if (
+    roundValue.includes(
+      "1/2"
+    ) ||
+    roundValue.includes(
+      "semi"
+    )
+  ) {
+    round =
+      "Semifinal";
+  } else if (
+    roundValue.includes(
+      "final"
+    )
+  ) {
+    round =
+      "Final";
+  }
 
-    const ages =
-      categories
-        .filter(
-          (category) =>
-            category.gender === value
+  if (
+    playoff &&
+    round
+  ) {
+    return `${playoff} ${round}`;
+  }
+
+  if (
+    round
+  ) {
+    return round;
+  }
+
+  if (
+    playoff
+  ) {
+    return playoff;
+  }
+
+  return null;
+}
+
+export async function GET(
+  request: NextRequest
+) {
+  const teamIdParam =
+    request.nextUrl
+      .searchParams
+      .get("teamId");
+
+  if (
+    !teamIdParam ||
+    !/^\d+$/.test(
+      teamIdParam
+    )
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Valid teamId is required",
+      },
+      {
+        status: 400,
+      }
+    );
+  }
+
+  const teamId =
+    Number(
+      teamIdParam
+    );
+
+  const call =
+    `Team({id:${teamId}})` +
+    `{matches:[{... on Match:{` +
+    `arena:{},` +
+    `away:{team:{club:{nation:{}}}},` +
+    `division:{category:{},stage:{name:{}}},` +
+    `home:{team:{club:{nation:{}}}},` +
+    `nextMatchLoser:{},` +
+    `nextMatchWinner:{},` +
+    `result:{},` +
+    `roundName:{},` +
+    `stage:{name:{}}` +
+    `}}],` +
+    `extraMatches:[{matches:[{... on Match:{` +
+    `arena:{},` +
+    `away:{team:{club:{nation:{}}}},` +
+    `division:{category:{},stage:{name:{}}},` +
+    `home:{team:{club:{nation:{}}}},` +
+    `nextMatchLoser:{},` +
+    `nextMatchWinner:{},` +
+    `result:{},` +
+    `roundName:{},` +
+    `stage:{name:{}}` +
+    `}}]}]}`;
+
+  const url =
+    new URL(
+      BASE_URL
+    );
+
+  url.searchParams.set(
+    "call",
+    call
+  );
+
+  url.searchParams.set(
+    "lang",
+    "nb"
+  );
+
+  url.searchParams.set(
+    "tournamentId",
+    String(
+      TOURNAMENT_ID
+    )
+  );
+
+  try {
+    const response =
+      await fetch(
+        url.toString(),
+        {
+          headers: {
+            Accept:
+              "application/json",
+
+            "User-Agent":
+              "Mozilla/5.0",
+
+            Referer:
+              "https://fotballfest.cupmanager.net/",
+          },
+
+          cache:
+            "no-store",
+        }
+      );
+
+    const body =
+      await response.text();
+
+    if (
+      !response.ok
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "CupManager request failed",
+
+          cupManagerStatus:
+            response.status,
+        },
+        {
+          status: 502,
+        }
+      );
+    }
+
+    const data: unknown =
+      JSON.parse(
+        body
+      );
+
+    const responses =
+      isRecord(data) &&
+      isRecord(
+        data.responses
+      )
+        ? data.responses
+        : {};
+
+    const selectedTeam =
+      getSelectedTeam(
+        responses,
+        teamId
+      );
+
+    const matches:
+      MatchSummary[] =
+        [];
+
+    for (
+      const [key, item]
+      of Object.entries(
+        responses
+      )
+    ) {
+      if (
+        !key.startsWith(
+          "Match({id:"
         )
-        .map(
-          (category) =>
-            category.age
+      ) {
+        continue;
+      }
+
+      if (
+        !isRecord(
+          item
+        )
+      ) {
+        continue;
+      }
+
+      const entity =
+        item.entity;
+
+      if (
+        !isRecord(
+          entity
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        getString(
+          entity,
+          "__typename"
+        ) !==
+        "Match"
+      ) {
+        continue;
+      }
+
+      const id =
+        getNumber(
+          entity,
+          "id"
+        );
+
+      if (
+        !id
+      ) {
+        continue;
+      }
+
+      const homeReference =
+        getHref(
+          entity,
+          "home"
+        );
+
+      const awayReference =
+        getHref(
+          entity,
+          "away"
+        );
+
+      const homeActor =
+        getEntity(
+          responses,
+          homeReference
+        );
+
+      const awayActor =
+        getEntity(
+          responses,
+          awayReference
+        );
+
+      const homeTeam =
+        getTeamFromActor(
+          homeActor,
+          responses
+        );
+
+      const awayTeam =
+        getTeamFromActor(
+          awayActor,
+          responses
+        );
+
+      let homeAway:
+        | "home"
+        | "away"
+        | "unknown" =
+          "unknown";
+
+      let opponent =
+        awayTeam;
+
+      if (
+        homeTeam.id ===
+        teamId
+      ) {
+        homeAway =
+          "home";
+
+        opponent =
+          awayTeam;
+      } else if (
+        awayTeam.id ===
+        teamId
+      ) {
+        homeAway =
+          "away";
+
+        opponent =
+          homeTeam;
+      }
+
+      const resultReference =
+        getHref(
+          entity,
+          "result"
+        );
+
+      const resultEntity =
+        getEntity(
+          responses,
+          resultReference
+        );
+
+      const live =
+        getBoolean(
+          resultEntity,
+          "live"
+        ) ??
+        getBoolean(
+          entity,
+          "live"
+        ) ??
+        false;
+
+      const finished =
+        getBoolean(
+          resultEntity,
+          "finished"
+        ) ??
+        getBoolean(
+          entity,
+          "finished"
+        ) ??
+        false;
+
+      const scheduled =
+        getBoolean(
+          entity,
+          "isScheduled"
+        ) ??
+        true;
+
+      const divisionReference =
+        getHref(
+          entity,
+          "division"
+        );
+
+      const divisionEntity =
+        getEntity(
+          responses,
+          divisionReference
+        );
+
+      const divisionName =
+        getLocalizedText(
+          divisionEntity
+            ?.name
+        ) ??
+        null;
+
+      const group =
+        getGroup(
+          divisionName
+        );
+
+      const stageName =
+        getStageName(
+          entity,
+          responses,
+          divisionEntity
+        );
+
+      const roundName =
+        getRoundName(
+          entity,
+          responses
+        );
+
+      const competitionLabel =
+        getCompetitionLabel(
+          group,
+          stageName,
+          roundName
+        );
+
+      const matchNumberValue =
+        entity.matchNr;
+
+      const matchNumber =
+        typeof matchNumberValue ===
+          "string"
+          ? matchNumberValue
+          : typeof matchNumberValue ===
+              "number"
+            ? String(
+                matchNumberValue
+              )
+            : null;
+
+      matches.push({
+        id,
+        matchNumber,
+
+        selectedTeam,
+        opponent,
+
+        homeTeam,
+        awayTeam,
+
+        homeAway,
+
+        start:
+          getNumber(
+            entity,
+            "start"
+          ) ??
+          null,
+
+        end:
+          getNumber(
+            entity,
+            "end"
+          ) ??
+          null,
+
+        duration:
+          getNumber(
+            entity,
+            "duration"
+          ) ??
+          null,
+
+        arena:
+          getArena(
+            entity,
+            responses
+          ),
+
+        score:
+          getResult(
+            entity,
+            responses,
+            teamId,
+            homeTeam.id,
+            awayTeam.id
+          ),
+
+        live,
+        finished,
+        scheduled,
+
+        status:
+          getStatus(
+            live,
+            finished
+          ),
+
+        group,
+        stageName,
+        roundName,
+        competitionLabel,
+
+        nextMatchWinner:
+          getHref(
+            entity,
+            "nextMatchWinner"
+          ) ??
+          null,
+
+        nextMatchLoser:
+          getHref(
+            entity,
+            "nextMatchLoser"
+          ) ??
+          null,
+      });
+    }
+
+    const uniqueMatches =
+      Array.from(
+        new Map(
+          matches.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
+        ).values()
+      ).sort(
+        (a, b) =>
+          (a.start ?? 0) -
+          (b.start ?? 0)
+      );
+
+    const confirmedMatches =
+      uniqueMatches.filter(
+        (match) =>
+          match.homeAway !==
+          "unknown"
+      );
+
+    const possibleMatches =
+      uniqueMatches.filter(
+        (match) =>
+          match.homeAway ===
+            "unknown" &&
+          match.status !==
+            "played"
+      );
+
+    const liveMatches =
+      confirmedMatches.filter(
+        (match) =>
+          match.status ===
+          "live"
+      );
+
+    const upcomingMatches =
+      confirmedMatches.filter(
+        (match) =>
+          match.status ===
+          "upcoming"
+      );
+
+    const playedMatches =
+      confirmedMatches
+        .filter(
+          (match) =>
+            match.status ===
+            "played"
         )
         .sort(
-          (a, b) => a - b
+          (a, b) =>
+            (b.start ?? 0) -
+            (a.start ?? 0)
         );
 
-    if (
-      ages.length > 0 &&
-      !ages.includes(age)
-    ) {
-      setAge(
-        ages.includes(14)
-          ? 14
-          : ages[0]
-      );
-    }
-  }
+    return NextResponse.json({
+      ok: true,
 
-  function addFavourite(
-    team: Team
-  ) {
-    setFavourites(
-      (current) => {
-        if (
-          current.some(
-            (item) =>
-              item.id === team.id
-          )
-        ) {
-          return current;
-        }
+      tournament:
+        "Fotballfest 2026",
 
-        return [
-          ...current,
-          team,
-        ];
+      tournamentId:
+        TOURNAMENT_ID,
+
+      team:
+        selectedTeam,
+
+      count:
+        uniqueMatches.length,
+
+      counts: {
+        live:
+          liveMatches.length,
+
+        upcoming:
+          upcomingMatches.length,
+
+        played:
+          playedMatches.length,
+
+        possible:
+          possibleMatches.length,
+      },
+
+      live:
+        liveMatches,
+
+      upcoming:
+        upcomingMatches,
+
+      played:
+        playedMatches,
+
+      possible:
+        possibleMatches,
+
+      matches:
+        uniqueMatches,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof
+            Error
+            ? error.message
+            : "Unknown CupManager error",
+
+        teamId,
+      },
+      {
+        status: 500,
       }
     );
-
-    setShowTeamPicker(false);
-    setTab("matches");
-    setMatchesTab(
-      "live-upcoming"
-    );
   }
-
-  function removeFavourite(
-    teamId: number
-  ) {
-    setFavourites(
-      (current) =>
-        current.filter(
-          (team) =>
-            team.id !== teamId
-        )
-    );
-  }
-
-  function mainTabButton(
-    value: Tab,
-    label: string
-  ) {
-    return (
-      <button
-        type="button"
-        onClick={() =>
-          setTab(value)
-        }
-        style={{
-          flex: 1,
-          padding: "11px 4px",
-          border: 0,
-          borderBottom:
-            tab === value
-              ? "3px solid #166534"
-              : "3px solid transparent",
-          background:
-            "transparent",
-          color:
-            tab === value
-              ? "#166534"
-              : "#667085",
-          fontSize: "13px",
-          fontWeight:
-            tab === value
-              ? 700
-              : 600,
-          cursor: "pointer",
-        }}
-      >
-        {label}
-      </button>
-    );
-  }
-
-  function matchesTabButton(
-    value: MatchesTab,
-    label: string
-  ) {
-    const selected =
-      matchesTab === value;
-
-    return (
-      <button
-        type="button"
-        onClick={() =>
-          setMatchesTab(value)
-        }
-        style={{
-          flex: 1,
-          padding: "9px",
-          border:
-            selected
-              ? "1px solid #166534"
-              : "1px solid #d0d5dd",
-          background:
-            selected
-              ? "#ecfdf3"
-              : "white",
-          color:
-            selected
-              ? "#166534"
-              : "#667085",
-          fontWeight: 700,
-          cursor: "pointer",
-        }}
-      >
-        {label}
-      </button>
-    );
-  }
-
-  function renderMatchDays(
-    matches: Match[],
-    qualification = false
-  ) {
-    return groupByDay(matches).map(
-      ([day, dayMatches]) => (
-        <section
-          key={day}
-          style={{
-            marginBottom: "24px",
-          }}
-        >
-          <div
-            style={{
-              marginBottom: "9px",
-              fontSize: "13px",
-              fontWeight: 800,
-              color: "#475467",
-              letterSpacing:
-                "0.03em",
-            }}
-          >
-            {day}
-          </div>
-
-          {dayMatches.map(
-            (match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                classLabel={getClassLabel(
-                  match,
-                  favourites
-                )}
-                qualification={
-                  qualification
-                }
-              />
-            )
-          )}
-        </section>
-      )
-    );
-  }
-
-  return (
-    <main
-      style={{
-        maxWidth: "600px",
-        margin: "0 auto",
-        padding:
-          "20px 16px 60px",
-      }}
-    >
-      <div
-        style={{
-          fontSize: "13px",
-          color: "#667085",
-        }}
-      >
-        Fotballfest 2026
-      </div>
-
-      <h1
-        style={{
-          margin: "5px 0 16px",
-          fontSize: "27px",
-        }}
-      >
-        ⚽ Match Tracker
-      </h1>
-
-      <div
-        style={{
-          display: "flex",
-          marginBottom: "18px",
-          borderBottom:
-            "1px solid #eaecf0",
-        }}
-      >
-        {mainTabButton(
-          "matches",
-          "MATCHES"
-        )}
-
-        {mainTabButton(
-          "qualification",
-          "QUALIFICATION"
-        )}
-
-        {mainTabButton(
-          "teams",
-          "TEAMS"
-        )}
-      </div>
-
-      {error && (
-        <div
-          style={{
-            background: "#fef3f2",
-            color: "#b42318",
-            padding: "12px",
-            borderRadius: "8px",
-            marginBottom: "16px",
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {tab === "matches" && (
-        <>
-          <div
-            style={{
-              display: "flex",
-              marginBottom: "18px",
-            }}
-          >
-            {matchesTabButton(
-              "live-upcoming",
-              "LIVE & UPCOMING"
-            )}
-
-            {matchesTabButton(
-              "played",
-              "PLAYED"
-            )}
-          </div>
-
-          {matchesLoading && (
-            <p
-              style={{
-                color: "#667085",
-              }}
-            >
-              Loading matches...
-            </p>
-          )}
-
-          {!matchesLoading &&
-            favouritesLoaded &&
-            favourites.length ===
-              0 && (
-              <div
-                style={{
-                  background: "white",
-                  borderRadius: "12px",
-                  padding: "24px",
-                  textAlign: "center",
-                }}
-              >
-                <strong>
-                  No favourite teams yet
-                </strong>
-
-                <p
-                  style={{
-                    color: "#667085",
-                  }}
-                >
-                  Add a team to start
-                  following matches.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTab("teams")
-                  }
-                  style={{
-                    padding: "11px 16px",
-                    border: 0,
-                    borderRadius: "8px",
-                    background: "#166534",
-                    color: "white",
-                    fontWeight: 700,
-                  }}
-                >
-                  Add team
-                </button>
-              </div>
-            )}
-
-          {!matchesLoading &&
-            favourites.length > 0 &&
-            matchesTab ===
-              "live-upcoming" &&
-            liveAndUpcoming.length ===
-              0 && (
-              <p
-                style={{
-                  color: "#667085",
-                }}
-              >
-                No live or upcoming
-                matches.
-              </p>
-            )}
-
-          {!matchesLoading &&
-            matchesTab ===
-              "live-upcoming" &&
-            renderMatchDays(
-              liveAndUpcoming
-            )}
-
-          {!matchesLoading &&
-            favourites.length > 0 &&
-            matchesTab ===
-              "played" &&
-            playedMatches.length ===
-              0 && (
-              <p
-                style={{
-                  color: "#667085",
-                }}
-              >
-                No played matches
-                available.
-              </p>
-            )}
-
-          {!matchesLoading &&
-            matchesTab ===
-              "played" &&
-            renderMatchDays(
-              playedMatches
-            )}
-        </>
-      )}
-
-      {tab ===
-        "qualification" && (
-        <>
-          {qualificationMatches.length ===
-          0 ? (
-            <div
-              style={{
-                background: "white",
-                borderRadius: "12px",
-                padding: "24px",
-                textAlign: "center",
-                color: "#667085",
-              }}
-            >
-              No qualification paths
-              to show yet.
-            </div>
-          ) : (
-            renderMatchDays(
-              qualificationMatches,
-              true
-            )
-          )}
-        </>
-      )}
-
-      {tab === "teams" && (
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              setSearch("");
-              setTeams([]);
-              setError("");
-              setShowTeamPicker(
-                true
-              );
-            }}
-            style={{
-              width: "100%",
-              padding: "13px",
-              border: 0,
-              borderRadius: "10px",
-              background: "#166534",
-              color: "white",
-              fontSize: "15px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            + Add favourite team
-          </button>
-
-          <div
-            style={{
-              marginTop: "18px",
-            }}
-          >
-            {!favouritesLoaded ? (
-              <p
-                style={{
-                  color: "#667085",
-                }}
-              >
-                Loading favourites...
-              </p>
-            ) : favourites.length ===
-              0 ? (
-              <p
-                style={{
-                  color: "#667085",
-                }}
-              >
-                No favourite teams
-                yet.
-              </p>
-            ) : (
-              favourites.map(
-                (team) => (
-                  <div
-                    key={team.id}
-                    style={{
-                      background: "white",
-                      padding: "14px",
-                      borderRadius: "10px",
-                      marginBottom: "9px",
-                      display: "flex",
-                      justifyContent:
-                        "space-between",
-                      gap: "12px",
-                    }}
-                  >
-                    <div>
-                      <strong>
-                        {team.name}
-                      </strong>
-
-                      {team.categoryName && (
-                        <div
-                          style={{
-                            fontSize: "13px",
-                            color: "#667085",
-                            marginTop: "3px",
-                          }}
-                        >
-                          {
-                            team.categoryName
-                          }
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        removeFavourite(
-                          team.id
-                        )
-                      }
-                      style={{
-                        border: 0,
-                        background:
-                          "transparent",
-                        color: "#b42318",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )
-              )
-            )}
-          </div>
-        </>
-      )}
-
-      {showTeamPicker && (
-        <section
-          style={{
-            marginTop: "22px",
-            padding: "18px",
-            background: "white",
-            borderRadius: "12px",
-            border:
-              "1px solid #eaecf0",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent:
-                "space-between",
-              alignItems: "center",
-            }}
-          >
-            <strong>
-              Add team
-            </strong>
-
-            <button
-              type="button"
-              aria-label="Close team selector"
-              onClick={() =>
-                setShowTeamPicker(
-                  false
-                )
-              }
-              style={{
-                border: 0,
-                background:
-                  "transparent",
-                fontSize: "22px",
-                cursor: "pointer",
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          {categoriesLoading ? (
-            <p
-              style={{
-                color: "#667085",
-              }}
-            >
-              Loading categories...
-            </p>
-          ) : (
-            <>
-              <div
-                style={{
-                  marginTop: "18px",
-                }}
-              >
-                <strong>
-                  Gender
-                </strong>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    marginTop: "7px",
-                  }}
-                >
-                  {(
-                    [
-                      "Girls",
-                      "Boys",
-                    ] as Gender[]
-                  ).map(
-                    (value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() =>
-                          handleGenderChange(
-                            value
-                          )
-                        }
-                        style={{
-                          flex: 1,
-                          padding: "10px",
-                          borderRadius: "8px",
-                          border:
-                            gender === value
-                              ? "2px solid #166534"
-                              : "1px solid #d0d5dd",
-                          background:
-                            gender === value
-                              ? "#ecfdf3"
-                              : "white",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {value}
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: "18px",
-                }}
-              >
-                <strong>
-                  Age
-                </strong>
-
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    marginTop: "7px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {availableAges.map(
-                    (value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => {
-                          setAge(value);
-                          setTeams([]);
-                          setSearch("");
-                          setError("");
-                        }}
-                        style={{
-                          minWidth: "58px",
-                          padding: "10px",
-                          borderRadius: "8px",
-                          border:
-                            age === value
-                              ? "2px solid #166534"
-                              : "1px solid #d0d5dd",
-                          background:
-                            age === value
-                              ? "#ecfdf3"
-                              : "white",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {value}
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: "18px",
-                }}
-              >
-                <strong>
-                  Team
-                </strong>
-
-                {selectedCategory && (
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#667085",
-                      marginTop: "3px",
-                    }}
-                  >
-                    {
-                      selectedCategory.name
-                    }
-                  </div>
-                )}
-
-                <input
-                  value={search}
-                  onChange={(event) =>
-                    setSearch(
-                      event.target.value
-                    )
-                  }
-                  placeholder="Search team..."
-                  autoComplete="off"
-                  disabled={
-                    teamsLoading ||
-                    !selectedCategory
-                  }
-                  style={{
-                    width: "100%",
-                    boxSizing:
-                      "border-box",
-                    padding: "11px",
-                    marginTop: "8px",
-                    borderRadius: "8px",
-                    border:
-                      "1px solid #d0d5dd",
-                    fontSize: "16px",
-                    background:
-                      teamsLoading ||
-                      !selectedCategory
-                        ? "#f2f4f7"
-                        : "white",
-                  }}
-                />
-
-                <div
-                  style={{
-                    marginTop: "8px",
-                  }}
-                >
-                  {teamsLoading ? (
-                    <p
-                      style={{
-                        color: "#667085",
-                      }}
-                    >
-                      Loading teams...
-                    </p>
-                  ) : (
-                    filteredTeams.map(
-                      (team) => (
-                        <button
-                          key={team.id}
-                          type="button"
-                          onClick={() =>
-                            addFavourite(
-                              team
-                            )
-                          }
-                          style={{
-                            display: "block",
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "11px 3px",
-                            border: 0,
-                            borderBottom:
-                              "1px solid #eaecf0",
-                            background: "white",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <strong>
-                            {team.name}
-                          </strong>
-
-                          {team.categoryName && (
-                            <div
-                              style={{
-                                fontSize: "12px",
-                                color: "#667085",
-                              }}
-                            >
-                              {
-                                team.categoryName
-                              }
-                            </div>
-                          )}
-                        </button>
-                      )
-                    )
-                  )}
-
-                  {!teamsLoading &&
-                    selectedCategory &&
-                    filteredTeams.length ===
-                      0 && (
-                      <p
-                        style={{
-                          color: "#667085",
-                        }}
-                      >
-                        No matching teams.
-                      </p>
-                    )}
-                </div>
-              </div>
-            </>
-          )}
-        </section>
-      )}
-    </main>
-  );
 }
