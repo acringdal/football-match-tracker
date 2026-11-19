@@ -487,16 +487,22 @@ function getResult(
     homeTeamId ===
     selectedTeamId
   ) {
-    goalsFor = homeGoals;
-    goalsAgainst = awayGoals;
+    goalsFor =
+      homeGoals;
+
+    goalsAgainst =
+      awayGoals;
   }
 
   if (
     awayTeamId ===
     selectedTeamId
   ) {
-    goalsFor = awayGoals;
-    goalsAgainst = homeGoals;
+    goalsFor =
+      awayGoals;
+
+    goalsAgainst =
+      homeGoals;
   }
 
   return {
@@ -552,44 +558,6 @@ function getGroup(
   );
 }
 
-function normalizeRoundName(
-  value: string | null
-): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const lower =
-    value
-      .trim()
-      .toLowerCase();
-
-  if (
-    lower.includes("1/4") ||
-    lower.includes("kvart") ||
-    lower.includes("quarter")
-  ) {
-    return "Quarterfinal";
-  }
-
-  if (
-    lower.includes("1/2") ||
-    lower.includes("semi")
-  ) {
-    return "Semifinal";
-  }
-
-  if (
-    lower === "final" ||
-    lower === "finale" ||
-    lower.includes("finalen")
-  ) {
-    return "Final";
-  }
-
-  return value;
-}
-
 function getRoundName(
   matchEntity: RecordValue,
   responses: RecordValue
@@ -600,7 +568,9 @@ function getRoundName(
       "roundName"
     );
 
-  if (!roundNameReference) {
+  if (
+    !roundNameReference
+  ) {
     return null;
   }
 
@@ -610,7 +580,9 @@ function getRoundName(
       roundNameReference
     );
 
-  if (!roundNameEntity) {
+  if (
+    !roundNameEntity
+  ) {
     return null;
   }
 
@@ -625,7 +597,9 @@ function getRoundName(
       name
     );
 
-  if (resolvedName) {
+  if (
+    resolvedName
+  ) {
     return resolvedName;
   }
 
@@ -829,59 +803,101 @@ function getCompetitionLabel(
     return `Group ${group}`;
   }
 
-  const normalizedRound =
-    normalizeRoundName(
-      roundName
-    );
-
-  const stageLower =
+  const stageValue =
     stageName
       ?.trim()
       .toLowerCase() ??
     "";
 
-  let prefix: string | null =
-    null;
+  const roundValue =
+    roundName
+      ?.trim()
+      .toLowerCase() ??
+    "";
+
+  let playoff = "";
 
   if (
-    stageLower.includes(
+    stageValue ===
+      "sluttspill a" ||
+    stageValue ===
+      "playoff a" ||
+    stageValue.includes(
       "sluttspill a"
     ) ||
-    stageLower.includes(
+    stageValue.includes(
       "playoff a"
     )
   ) {
-    prefix = "A";
+    playoff = "A";
   }
 
   if (
-    stageLower.includes(
+    stageValue ===
+      "sluttspill b" ||
+    stageValue ===
+      "playoff b" ||
+    stageValue.includes(
       "sluttspill b"
     ) ||
-    stageLower.includes(
+    stageValue.includes(
       "playoff b"
     )
   ) {
-    prefix = "B";
+    playoff = "B";
+  }
+
+  let round = "";
+
+  if (
+    roundValue.includes(
+      "1/4"
+    ) ||
+    roundValue.includes(
+      "kvart"
+    ) ||
+    roundValue.includes(
+      "quarter"
+    )
+  ) {
+    round =
+      "Quarterfinal";
+  } else if (
+    roundValue.includes(
+      "1/2"
+    ) ||
+    roundValue.includes(
+      "semi"
+    )
+  ) {
+    round =
+      "Semifinal";
+  } else if (
+    roundValue.includes(
+      "final"
+    )
+  ) {
+    round =
+      "Final";
   }
 
   if (
-    prefix &&
-    normalizedRound
+    playoff &&
+    round
   ) {
-    return `${prefix} ${normalizedRound}`;
+    return `${playoff} ${round}`;
   }
 
   if (
-    normalizedRound
+    round
   ) {
-    return normalizedRound;
+    return round;
   }
 
   if (
-    prefix
+    playoff
   ) {
-    return prefix;
+    return playoff;
   }
 
   return null;
