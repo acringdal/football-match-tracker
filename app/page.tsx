@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Gender = "Girls" | "Boys";
 type Tab = "matches" | "qualification" | "teams";
+type MatchesTab = "live-upcoming" | "played";
 
 type Category = {
   id: number;
@@ -94,18 +95,10 @@ type TeamsResponse = {
 type MatchesResponse = {
   ok: boolean;
 
-  counts?: {
-    live?: number;
-    upcoming?: number;
-    played?: number;
-    possible?: number;
-  };
-
   live?: Match[];
   upcoming?: Match[];
   played?: Match[];
   possible?: Match[];
-  matches?: Match[];
 };
 
 type TeamMatches = {
@@ -169,33 +162,128 @@ function displayTeamName(
   return team.name ?? fallback;
 }
 
-function scoreLine(match: Match) {
-  const home = displayTeamName(match.homeTeam);
-  const away = displayTeamName(match.awayTeam);
-
-  if (
-    match.score &&
-    typeof match.score.home === "number" &&
-    typeof match.score.away === "number"
-  ) {
-    return `${home} ${match.score.home}–${match.score.away} ${away}`;
-  }
-
-  return `${home} – ${away}`;
-}
-
 function groupByDay(matches: Match[]) {
   const map = new Map<string, Match[]>();
 
   for (const match of matches) {
     const day = formatDay(match.start);
-    const list = map.get(day) ?? [];
+    const existing = map.get(day) ?? [];
 
-    list.push(match);
-    map.set(day, list);
+    existing.push(match);
+    map.set(day, existing);
   }
 
   return Array.from(map.entries());
+}
+
+function ScoreRows({ match }: { match: Match }) {
+  if (!match.score) {
+    return null;
+  }
+
+  const homeName =
+    displayTeamName(match.homeTeam);
+
+  const awayName =
+    displayTeamName(match.awayTeam);
+
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns:
+          "minmax(0, 1fr) 34px",
+        columnGap: "12px",
+        rowGap: "5px",
+        alignItems: "center",
+        marginTop: "8px",
+      }}
+    >
+      <div
+        style={{
+          minWidth: 0,
+          fontWeight: 700,
+          fontSize: "16px",
+        }}
+      >
+        {homeName}
+      </div>
+
+      <div
+        style={{
+          width: "34px",
+          textAlign: "left",
+          fontWeight: 800,
+          fontSize: "18px",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {match.score.home}
+      </div>
+
+      <div
+        style={{
+          minWidth: 0,
+          fontWeight: 700,
+          fontSize: "16px",
+        }}
+      >
+        {awayName}
+      </div>
+
+      <div
+        style={{
+          width: "34px",
+          textAlign: "left",
+          fontWeight: 800,
+          fontSize: "18px",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {match.score.away}
+      </div>
+    </div>
+  );
+}
+
+function MatchMeta({ match }: { match: Match }) {
+  if (
+    !match.matchNumber &&
+    !match.competitionLabel
+  ) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: "8px",
+        fontSize: "14px",
+        color: "#344054",
+      }}
+    >
+      {match.matchNumber && (
+        <span>
+          ⚽ #{match.matchNumber}
+        </span>
+      )}
+
+      {match.matchNumber &&
+        match.competitionLabel && (
+          <span> · </span>
+        )}
+
+      {match.competitionLabel && (
+        <span
+          style={{
+            fontWeight: 600,
+          }}
+        >
+          {match.competitionLabel}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function MatchCard({
@@ -205,8 +293,11 @@ function MatchCard({
   match: Match;
   qualification?: boolean;
 }) {
+  const hasScore = Boolean(match.score);
+
   const selectedTeamName =
-    match.selectedTeam?.name ?? "Favourite team";
+    match.selectedTeam?.name ??
+    "Favourite team";
 
   return (
     <div
@@ -215,43 +306,52 @@ function MatchCard({
         borderRadius: "12px",
         padding: "14px",
         marginBottom: "10px",
-        boxShadow: "0 1px 2px rgba(16,24,40,0.06)",
+        boxShadow:
+          "0 1px 2px rgba(16,24,40,0.06)",
       }}
     >
       <div
         style={{
-          fontWeight: 700,
-          fontSize: "16px",
-          lineHeight: 1.35,
-        }}
-      >
-        {scoreLine(match)}
-      </div>
-
-      <div
-        style={{
-          marginTop: "6px",
           fontSize: "14px",
           color: "#344054",
-          lineHeight: 1.4,
+          fontWeight: 700,
         }}
       >
-        <strong>{matchTime(match)}</strong>
-
-        {match.matchNumber && (
+        {match.live === true ? (
           <>
-            {" · "}
-            <span>⚽ #{match.matchNumber}</span>
+            <span
+              style={{
+                color: "#b42318",
+              }}
+            >
+              🔴 LIVE
+            </span>
+            <span> · </span>
+            <span>{matchTime(match)}</span>
           </>
-        )}
-
-        {match.competitionLabel && (
-          <>
-            {" · "}
-            <span>{match.competitionLabel}</span>
-          </>
+        ) : (
+          <span>{matchTime(match)}</span>
         )}
       </div>
+
+      {hasScore ? (
+        <ScoreRows match={match} />
+      ) : (
+        <div
+          style={{
+            marginTop: "8px",
+            fontWeight: 700,
+            fontSize: "16px",
+            lineHeight: 1.35,
+          }}
+        >
+          {displayTeamName(match.homeTeam)}
+          {" – "}
+          {displayTeamName(match.awayTeam)}
+        </div>
+      )}
+
+      <MatchMeta match={match} />
 
       <div
         style={{
@@ -262,19 +362,6 @@ function MatchCard({
       >
         📍 {match.arena?.name ?? "Venue TBD"}
       </div>
-
-      {match.live === true && (
-        <div
-          style={{
-            marginTop: "8px",
-            color: "#b42318",
-            fontWeight: 700,
-            fontSize: "13px",
-          }}
-        >
-          🔴 LIVE
-        </div>
-      )}
 
       {qualification && (
         <div
@@ -296,6 +383,14 @@ export default function Home() {
   const [tab, setTab] =
     useState<Tab>("matches");
 
+  const [
+    matchesTab,
+    setMatchesTab,
+  ] =
+    useState<MatchesTab>(
+      "live-upcoming"
+    );
+
   const [categories, setCategories] =
     useState<Category[]>([]);
 
@@ -305,13 +400,22 @@ export default function Home() {
   const [favourites, setFavourites] =
     useState<Team[]>([]);
 
-  const [favouritesLoaded, setFavouritesLoaded] =
+  const [
+    favouritesLoaded,
+    setFavouritesLoaded,
+  ] =
     useState(false);
 
-  const [teamMatches, setTeamMatches] =
+  const [
+    teamMatches,
+    setTeamMatches,
+  ] =
     useState<TeamMatches[]>([]);
 
-  const [showTeamPicker, setShowTeamPicker] =
+  const [
+    showTeamPicker,
+    setShowTeamPicker,
+  ] =
     useState(false);
 
   const [gender, setGender] =
@@ -326,29 +430,38 @@ export default function Home() {
   const [
     categoriesLoading,
     setCategoriesLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
 
-  const [teamsLoading, setTeamsLoading] =
+  const [
+    teamsLoading,
+    setTeamsLoading,
+  ] =
     useState(false);
 
   const [
     matchesLoading,
     setMatchesLoading,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [error, setError] =
     useState("");
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(
-        FAVOURITES_STORAGE_KEY
-      );
+      const saved =
+        localStorage.getItem(
+          FAVOURITES_STORAGE_KEY
+        );
 
       if (saved) {
-        const parsed = JSON.parse(saved);
+        const parsed =
+          JSON.parse(saved);
 
-        if (Array.isArray(parsed)) {
+        if (
+          Array.isArray(parsed)
+        ) {
           setFavourites(parsed);
         }
       }
@@ -370,7 +483,10 @@ export default function Home() {
       FAVOURITES_STORAGE_KEY,
       JSON.stringify(favourites)
     );
-  }, [favourites, favouritesLoaded]);
+  }, [
+    favourites,
+    favouritesLoaded,
+  ]);
 
   useEffect(() => {
     const controller =
@@ -381,55 +497,71 @@ export default function Home() {
         setCategoriesLoading(true);
         setError("");
 
-        const response = await fetch(
-          "/api/cupmanager/categories",
-          {
-            cache: "no-store",
-            signal: controller.signal,
-          }
-        );
+        const response =
+          await fetch(
+            "/api/cupmanager/categories",
+            {
+              cache:
+                "no-store",
+              signal:
+                controller.signal,
+            }
+          );
 
         if (!response.ok) {
-          throw new Error(
-            "Could not load categories"
-          );
+          throw new Error();
         }
 
-        const data: CategoriesResponse =
-          await response.json();
+        const data:
+          CategoriesResponse =
+            await response.json();
 
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setCategories(
-            Array.isArray(data.categories)
+            Array.isArray(
+              data.categories
+            )
               ? data.categories
               : []
           );
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
 
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setError(
             "Could not load Fotballfest categories."
           );
         }
       } finally {
-        if (!controller.signal.aborted) {
-          setCategoriesLoading(false);
+        if (
+          !controller.signal
+            .aborted
+        ) {
+          setCategoriesLoading(
+            false
+          );
         }
       }
     }
 
     loadCategories();
 
-    return () => {
+    return () =>
       controller.abort();
-    };
   }, []);
 
   const availableAges =
@@ -439,24 +571,35 @@ export default function Home() {
           categories
             .filter(
               (category) =>
-                category.gender === gender
+                category.gender ===
+                gender
             )
             .map(
               (category) =>
                 category.age
             )
         )
-      ).sort((a, b) => a - b);
-    }, [categories, gender]);
+      ).sort(
+        (a, b) => a - b
+      );
+    }, [
+      categories,
+      gender,
+    ]);
 
   const selectedCategory =
     useMemo(() => {
       return categories.find(
         (category) =>
-          category.gender === gender &&
+          category.gender ===
+            gender &&
           category.age === age
       );
-    }, [categories, gender, age]);
+    }, [
+      categories,
+      gender,
+      age,
+    ]);
 
   useEffect(() => {
     if (
@@ -477,53 +620,67 @@ export default function Home() {
     async function loadTeams() {
       try {
         setTeamsLoading(true);
-        setError("");
         setTeams([]);
         setSearch("");
+        setError("");
 
-        const response = await fetch(
-          `/api/cupmanager/teams?categoryId=${categoryId}`,
-          {
-            cache: "no-store",
-            signal: controller.signal,
-          }
-        );
+        const response =
+          await fetch(
+            `/api/cupmanager/teams?categoryId=${categoryId}`,
+            {
+              cache:
+                "no-store",
+              signal:
+                controller.signal,
+            }
+          );
 
         if (!response.ok) {
-          throw new Error(
-            "Could not load teams"
-          );
+          throw new Error();
         }
 
-        const data: TeamsResponse =
-          await response.json();
+        const data:
+          TeamsResponse =
+            await response.json();
 
         if (
-          !controller.signal.aborted &&
-          data.categoryId === categoryId
+          !controller.signal
+            .aborted &&
+          data.categoryId ===
+            categoryId
         ) {
           setTeams(
-            Array.isArray(data.teams)
+            Array.isArray(
+              data.teams
+            )
               ? data.teams
               : []
           );
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
 
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setTeams([]);
           setError(
             "Could not load teams."
           );
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setTeamsLoading(false);
         }
       }
@@ -531,9 +688,8 @@ export default function Home() {
 
     loadTeams();
 
-    return () => {
+    return () =>
       controller.abort();
-    };
   }, [
     showTeamPicker,
     selectedCategory,
@@ -544,7 +700,9 @@ export default function Home() {
       return;
     }
 
-    if (favourites.length === 0) {
+    if (
+      favourites.length === 0
+    ) {
       setTeamMatches([]);
       setMatchesLoading(false);
       return;
@@ -566,16 +724,17 @@ export default function Home() {
                   await fetch(
                     `/api/cupmanager/matches?teamId=${team.id}`,
                     {
-                      cache: "no-store",
+                      cache:
+                        "no-store",
                       signal:
                         controller.signal,
                     }
                   );
 
-                if (!response.ok) {
-                  throw new Error(
-                    "Could not load matches"
-                  );
+                if (
+                  !response.ok
+                ) {
+                  throw new Error();
                 }
 
                 const data:
@@ -584,31 +743,43 @@ export default function Home() {
 
                 return {
                   team,
-                  response: data,
+                  response:
+                    data,
                 };
               }
             )
           );
 
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setTeamMatches(results);
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
 
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setTeamMatches([]);
           setError(
             "Could not load matches."
           );
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal
+            .aborted
+        ) {
           setMatchesLoading(false);
         }
       }
@@ -616,9 +787,8 @@ export default function Home() {
 
     loadMatches();
 
-    return () => {
+    return () =>
       controller.abort();
-    };
   }, [
     favourites,
     favouritesLoaded,
@@ -648,48 +818,116 @@ export default function Home() {
             .toLowerCase()
             .includes(text)
       );
-    }, [teams, search]);
+    }, [
+      teams,
+      search,
+    ]);
 
-  const confirmedMatches =
+  const liveMatches =
     useMemo(() => {
       const all =
         teamMatches.flatMap(
-          ({ response }) => [
-            ...(
-              Array.isArray(
-                response.live
-              )
-                ? response.live
-                : []
-            ),
-            ...(
-              Array.isArray(
-                response.upcoming
-              )
-                ? response.upcoming
-                : []
-            ),
-            ...(
-              Array.isArray(
-                response.played
-              )
-                ? response.played
-                : []
-            ),
-          ]
+          ({ response }) =>
+            Array.isArray(
+              response.live
+            )
+              ? response.live
+              : []
         );
 
       return Array.from(
         new Map(
-          all.map((match) => [
-            match.id,
-            match,
-          ])
+          all.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
         ).values()
       ).sort(
         (a, b) =>
           (a.start ?? 0) -
           (b.start ?? 0)
+      );
+    }, [teamMatches]);
+
+  const upcomingMatches =
+    useMemo(() => {
+      const all =
+        teamMatches.flatMap(
+          ({ response }) =>
+            Array.isArray(
+              response.upcoming
+            )
+              ? response.upcoming
+              : []
+        );
+
+      return Array.from(
+        new Map(
+          all.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
+        ).values()
+      ).sort(
+        (a, b) =>
+          (a.start ?? 0) -
+          (b.start ?? 0)
+      );
+    }, [teamMatches]);
+
+  const liveAndUpcoming =
+    useMemo(() => {
+      return Array.from(
+        new Map(
+          [
+            ...liveMatches,
+            ...upcomingMatches,
+          ].map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
+        ).values()
+      ).sort(
+        (a, b) =>
+          (a.start ?? 0) -
+          (b.start ?? 0)
+      );
+    }, [
+      liveMatches,
+      upcomingMatches,
+    ]);
+
+  const playedMatches =
+    useMemo(() => {
+      const all =
+        teamMatches.flatMap(
+          ({ response }) =>
+            Array.isArray(
+              response.played
+            )
+              ? response.played
+              : []
+        );
+
+      return Array.from(
+        new Map(
+          all.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
+        ).values()
+      ).sort(
+        (a, b) =>
+          (b.start ?? 0) -
+          (a.start ?? 0)
       );
     }, [teamMatches]);
 
@@ -707,10 +945,12 @@ export default function Home() {
 
       return Array.from(
         new Map(
-          all.map((match) => [
-            match.id,
-            match,
-          ])
+          all.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
         ).values()
       ).sort(
         (a, b) =>
@@ -731,13 +971,16 @@ export default function Home() {
       categories
         .filter(
           (category) =>
-            category.gender === value
+            category.gender ===
+            value
         )
         .map(
           (category) =>
             category.age
         )
-        .sort((a, b) => a - b);
+        .sort(
+          (a, b) => a - b
+        );
 
     if (
       ages.length > 0 &&
@@ -759,7 +1002,8 @@ export default function Home() {
         if (
           current.some(
             (item) =>
-              item.id === team.id
+              item.id ===
+              team.id
           )
         ) {
           return current;
@@ -774,6 +1018,9 @@ export default function Home() {
 
     setShowTeamPicker(false);
     setTab("matches");
+    setMatchesTab(
+      "live-upcoming"
+    );
   }
 
   function removeFavourite(
@@ -783,12 +1030,13 @@ export default function Home() {
       (current) =>
         current.filter(
           (team) =>
-            team.id !== teamId
+            team.id !==
+            teamId
         )
     );
   }
 
-  function tabButton(
+  function mainTabButton(
     value: Tab,
     label: string
   ) {
@@ -806,7 +1054,8 @@ export default function Home() {
             tab === value
               ? "3px solid #166534"
               : "3px solid transparent",
-          background: "transparent",
+          background:
+            "transparent",
           color:
             tab === value
               ? "#166534"
@@ -824,12 +1073,92 @@ export default function Home() {
     );
   }
 
+  function matchesTabButton(
+    value: MatchesTab,
+    label: string
+  ) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          setMatchesTab(value)
+        }
+        style={{
+          flex: 1,
+          padding: "9px",
+          border:
+            matchesTab === value
+              ? "1px solid #166534"
+              : "1px solid #d0d5dd",
+          background:
+            matchesTab === value
+              ? "#ecfdf3"
+              : "white",
+          color:
+            matchesTab === value
+              ? "#166534"
+              : "#667085",
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function renderMatchDays(
+    matches: Match[],
+    qualification = false
+  ) {
+    return groupByDay(
+      matches
+    ).map(
+      ([day, dayMatches]) => (
+        <section
+          key={day}
+          style={{
+            marginBottom:
+              "24px",
+          }}
+        >
+          <div
+            style={{
+              marginBottom:
+                "9px",
+              fontSize: "13px",
+              fontWeight: 800,
+              color: "#475467",
+              letterSpacing:
+                "0.03em",
+            }}
+          >
+            {day}
+          </div>
+
+          {dayMatches.map(
+            (match) => (
+              <MatchCard
+                key={match.id}
+                match={match}
+                qualification={
+                  qualification
+                }
+              />
+            )
+          )}
+        </section>
+      )
+    );
+  }
+
   return (
     <main
       style={{
         maxWidth: "600px",
         margin: "0 auto",
-        padding: "20px 16px 60px",
+        padding:
+          "20px 16px 60px",
       }}
     >
       <div
@@ -843,7 +1172,8 @@ export default function Home() {
 
       <h1
         style={{
-          margin: "5px 0 16px",
+          margin:
+            "5px 0 16px",
           fontSize: "27px",
         }}
       >
@@ -853,22 +1183,22 @@ export default function Home() {
       <div
         style={{
           display: "flex",
-          marginBottom: "22px",
+          marginBottom: "18px",
           borderBottom:
             "1px solid #eaecf0",
         }}
       >
-        {tabButton(
+        {mainTabButton(
           "matches",
           "MATCHES"
         )}
 
-        {tabButton(
+        {mainTabButton(
           "qualification",
           "QUALIFICATION"
         )}
 
-        {tabButton(
+        {mainTabButton(
           "teams",
           "TEAMS"
         )}
@@ -877,11 +1207,13 @@ export default function Home() {
       {error && (
         <div
           style={{
-            background: "#fef3f2",
+            background:
+              "#fef3f2",
             color: "#b42318",
             padding: "12px",
             borderRadius: "8px",
-            marginBottom: "16px",
+            marginBottom:
+              "16px",
           }}
         >
           {error}
@@ -890,6 +1222,24 @@ export default function Home() {
 
       {tab === "matches" && (
         <>
+          <div
+            style={{
+              display: "flex",
+              marginBottom:
+                "18px",
+            }}
+          >
+            {matchesTabButton(
+              "live-upcoming",
+              "LIVE & UPCOMING"
+            )}
+
+            {matchesTabButton(
+              "played",
+              "PLAYED"
+            )}
+          </div>
+
           {matchesLoading && (
             <p
               style={{
@@ -902,39 +1252,55 @@ export default function Home() {
 
           {!matchesLoading &&
             favouritesLoaded &&
-            favourites.length === 0 && (
+            favourites.length ===
+              0 && (
               <div
                 style={{
-                  background: "white",
-                  borderRadius: "12px",
-                  padding: "24px",
-                  textAlign: "center",
+                  background:
+                    "white",
+                  borderRadius:
+                    "12px",
+                  padding:
+                    "24px",
+                  textAlign:
+                    "center",
                 }}
               >
                 <strong>
-                  No favourite teams yet
+                  No favourite
+                  teams yet
                 </strong>
 
                 <p
                   style={{
-                    color: "#667085",
+                    color:
+                      "#667085",
                   }}
                 >
-                  Add a team to start following matches.
+                  Add a team to
+                  start following
+                  matches.
                 </p>
 
                 <button
                   type="button"
                   onClick={() =>
-                    setTab("teams")
+                    setTab(
+                      "teams"
+                    )
                   }
                   style={{
-                    padding: "11px 16px",
+                    padding:
+                      "11px 16px",
                     border: 0,
-                    borderRadius: "8px",
-                    background: "#166534",
-                    color: "white",
-                    fontWeight: 700,
+                    borderRadius:
+                      "8px",
+                    background:
+                      "#166534",
+                    color:
+                      "white",
+                    fontWeight:
+                      700,
                   }}
                 >
                   Add team
@@ -943,102 +1309,81 @@ export default function Home() {
             )}
 
           {!matchesLoading &&
-            favourites.length > 0 &&
-            confirmedMatches.length === 0 && (
+            favourites.length >
+              0 &&
+            matchesTab ===
+              "live-upcoming" &&
+            liveAndUpcoming.length ===
+              0 && (
               <p
                 style={{
                   color: "#667085",
                 }}
               >
-                No confirmed matches available.
+                No live or
+                upcoming matches.
               </p>
             )}
 
           {!matchesLoading &&
-            groupByDay(
-              confirmedMatches
-            ).map(
-              ([day, matches]) => (
-                <section
-                  key={day}
-                  style={{
-                    marginBottom: "24px",
-                  }}
-                >
-                  <div
-                    style={{
-                      marginBottom: "9px",
-                      fontSize: "13px",
-                      fontWeight: 800,
-                      color: "#475467",
-                      letterSpacing: "0.03em",
-                    }}
-                  >
-                    {day}
-                  </div>
+            matchesTab ===
+              "live-upcoming" &&
+            renderMatchDays(
+              liveAndUpcoming
+            )}
 
-                  {matches.map(
-                    (match) => (
-                      <MatchCard
-                        key={match.id}
-                        match={match}
-                      />
-                    )
-                  )}
-                </section>
-              )
+          {!matchesLoading &&
+            favourites.length >
+              0 &&
+            matchesTab ===
+              "played" &&
+            playedMatches.length ===
+              0 && (
+              <p
+                style={{
+                  color: "#667085",
+                }}
+              >
+                No played matches
+                available.
+              </p>
+            )}
+
+          {!matchesLoading &&
+            matchesTab ===
+              "played" &&
+            renderMatchDays(
+              playedMatches
             )}
         </>
       )}
 
-      {tab === "qualification" && (
+      {tab ===
+        "qualification" && (
         <>
-          {qualificationMatches.length === 0 ? (
+          {qualificationMatches.length ===
+          0 ? (
             <div
               style={{
-                background: "white",
-                borderRadius: "12px",
-                padding: "24px",
-                textAlign: "center",
-                color: "#667085",
+                background:
+                  "white",
+                borderRadius:
+                  "12px",
+                padding:
+                  "24px",
+                textAlign:
+                  "center",
+                color:
+                  "#667085",
               }}
             >
-              No qualification paths to show yet.
+              No qualification
+              paths to show yet.
             </div>
           ) : (
-            groupByDay(
-              qualificationMatches
-            ).map(
-              ([day, matches]) => (
-                <section
-                  key={day}
-                  style={{
-                    marginBottom: "24px",
-                  }}
-                >
-                  <div
-                    style={{
-                      marginBottom: "9px",
-                      fontSize: "13px",
-                      fontWeight: 800,
-                      color: "#475467",
-                      letterSpacing: "0.03em",
-                    }}
-                  >
-                    {day}
-                  </div>
-
-                  {matches.map(
-                    (match) => (
-                      <MatchCard
-                        key={match.id}
-                        match={match}
-                        qualification
-                      />
-                    )
-                  )}
-                </section>
-              )
+            renderMatchDays(
+              qualificationMatches,
+              true
             )
           )}
         </>
@@ -1052,42 +1397,54 @@ export default function Home() {
               setSearch("");
               setTeams([]);
               setError("");
-              setShowTeamPicker(true);
+              setShowTeamPicker(
+                true
+              );
             }}
             style={{
               width: "100%",
               padding: "13px",
               border: 0,
-              borderRadius: "10px",
-              background: "#166534",
+              borderRadius:
+                "10px",
+              background:
+                "#166534",
               color: "white",
-              fontSize: "15px",
+              fontSize:
+                "15px",
               fontWeight: 700,
             }}
           >
-            + Add favourite team
+            + Add favourite
+            team
           </button>
 
           <div
             style={{
-              marginTop: "18px",
+              marginTop:
+                "18px",
             }}
           >
             {!favouritesLoaded ? (
               <p
                 style={{
-                  color: "#667085",
+                  color:
+                    "#667085",
                 }}
               >
-                Loading favourites...
+                Loading
+                favourites...
               </p>
-            ) : favourites.length === 0 ? (
+            ) : favourites.length ===
+              0 ? (
               <p
                 style={{
-                  color: "#667085",
+                  color:
+                    "#667085",
                 }}
               >
-                No favourite teams yet.
+                No favourite
+                teams yet.
               </p>
             ) : (
               favourites.map(
@@ -1095,13 +1452,20 @@ export default function Home() {
                   <div
                     key={team.id}
                     style={{
-                      background: "white",
-                      padding: "14px",
-                      borderRadius: "10px",
-                      marginBottom: "9px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
+                      background:
+                        "white",
+                      padding:
+                        "14px",
+                      borderRadius:
+                        "10px",
+                      marginBottom:
+                        "9px",
+                      display:
+                        "flex",
+                      justifyContent:
+                        "space-between",
+                      gap:
+                        "12px",
                     }}
                   >
                     <div>
@@ -1112,12 +1476,17 @@ export default function Home() {
                       {team.categoryName && (
                         <div
                           style={{
-                            fontSize: "13px",
-                            color: "#667085",
-                            marginTop: "3px",
+                            fontSize:
+                              "13px",
+                            color:
+                              "#667085",
+                            marginTop:
+                              "3px",
                           }}
                         >
-                          {team.categoryName}
+                          {
+                            team.categoryName
+                          }
                         </div>
                       )}
                     </div>
@@ -1131,8 +1500,10 @@ export default function Home() {
                       }
                       style={{
                         border: 0,
-                        background: "transparent",
-                        color: "#b42318",
+                        background:
+                          "transparent",
+                        color:
+                          "#b42318",
                       }}
                     >
                       Remove
@@ -1159,20 +1530,27 @@ export default function Home() {
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent:
+                "space-between",
             }}
           >
-            <strong>Add team</strong>
+            <strong>
+              Add team
+            </strong>
 
             <button
               type="button"
               onClick={() =>
-                setShowTeamPicker(false)
+                setShowTeamPicker(
+                  false
+                )
               }
               style={{
                 border: 0,
-                background: "transparent",
-                fontSize: "22px",
+                background:
+                  "transparent",
+                fontSize:
+                  "22px",
               }}
             >
               ×
@@ -1182,31 +1560,45 @@ export default function Home() {
           {categoriesLoading ? (
             <p
               style={{
-                color: "#667085",
+                color:
+                  "#667085",
               }}
             >
-              Loading categories...
+              Loading
+              categories...
             </p>
           ) : (
             <>
               <div
                 style={{
-                  marginTop: "18px",
+                  marginTop:
+                    "18px",
                 }}
               >
-                <strong>Gender</strong>
+                <strong>
+                  Gender
+                </strong>
 
                 <div
                   style={{
-                    display: "flex",
+                    display:
+                      "flex",
                     gap: "8px",
-                    marginTop: "7px",
+                    marginTop:
+                      "7px",
                   }}
                 >
-                  {(["Girls", "Boys"] as Gender[]).map(
+                  {(
+                    [
+                      "Girls",
+                      "Boys",
+                    ] as Gender[]
+                  ).map(
                     (value) => (
                       <button
-                        key={value}
+                        key={
+                          value
+                        }
                         type="button"
                         onClick={() =>
                           handleGenderChange(
@@ -1216,13 +1608,16 @@ export default function Home() {
                         style={{
                           flex: 1,
                           padding: "10px",
-                          borderRadius: "8px",
+                          borderRadius:
+                            "8px",
                           border:
-                            gender === value
+                            gender ===
+                            value
                               ? "2px solid #166534"
                               : "1px solid #d0d5dd",
                           background:
-                            gender === value
+                            gender ===
+                            value
                               ? "#ecfdf3"
                               : "white",
                         }}
@@ -1236,40 +1631,60 @@ export default function Home() {
 
               <div
                 style={{
-                  marginTop: "18px",
+                  marginTop:
+                    "18px",
                 }}
               >
-                <strong>Age</strong>
+                <strong>
+                  Age
+                </strong>
 
                 <div
                   style={{
-                    display: "flex",
+                    display:
+                      "flex",
                     gap: "8px",
-                    marginTop: "7px",
-                    flexWrap: "wrap",
+                    marginTop:
+                      "7px",
+                    flexWrap:
+                      "wrap",
                   }}
                 >
                   {availableAges.map(
                     (value) => (
                       <button
-                        key={value}
+                        key={
+                          value
+                        }
                         type="button"
                         onClick={() => {
-                          setAge(value);
-                          setTeams([]);
-                          setSearch("");
-                          setError("");
+                          setAge(
+                            value
+                          );
+                          setTeams(
+                            []
+                          );
+                          setSearch(
+                            ""
+                          );
+                          setError(
+                            ""
+                          );
                         }}
                         style={{
-                          minWidth: "58px",
+                          minWidth:
+                            "58px",
                           padding: "10px",
-                          borderRadius: "8px",
+                          borderRadius:
+                            "8px",
                           border:
-                            age === value
+                            age ===
+                            value
                               ? "2px solid #166534"
                               : "1px solid #d0d5dd",
                           background:
-                            age === value
+                            age ===
+                            value
                               ? "#ecfdf3"
                               : "white",
                         }}
@@ -1283,28 +1698,39 @@ export default function Home() {
 
               <div
                 style={{
-                  marginTop: "18px",
+                  marginTop:
+                    "18px",
                 }}
               >
-                <strong>Team</strong>
+                <strong>
+                  Team
+                </strong>
 
                 {selectedCategory && (
                   <div
                     style={{
-                      fontSize: "12px",
-                      color: "#667085",
-                      marginTop: "3px",
+                      fontSize:
+                        "12px",
+                      color:
+                        "#667085",
+                      marginTop:
+                        "3px",
                     }}
                   >
-                    {selectedCategory.name}
+                    {
+                      selectedCategory.name
+                    }
                   </div>
                 )}
 
                 <input
                   value={search}
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     setSearch(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   placeholder="Search team..."
@@ -1315,13 +1741,18 @@ export default function Home() {
                   }
                   style={{
                     width: "100%",
-                    boxSizing: "border-box",
-                    padding: "11px",
-                    marginTop: "8px",
-                    borderRadius: "8px",
+                    boxSizing:
+                      "border-box",
+                    padding:
+                      "11px",
+                    marginTop:
+                      "8px",
+                    borderRadius:
+                      "8px",
                     border:
                       "1px solid #d0d5dd",
-                    fontSize: "16px",
+                    fontSize:
+                      "16px",
                     background:
                       teamsLoading ||
                       !selectedCategory
@@ -1332,22 +1763,27 @@ export default function Home() {
 
                 <div
                   style={{
-                    marginTop: "8px",
+                    marginTop:
+                      "8px",
                   }}
                 >
                   {teamsLoading ? (
                     <p
                       style={{
-                        color: "#667085",
+                        color:
+                          "#667085",
                       }}
                     >
-                      Loading teams...
+                      Loading
+                      teams...
                     </p>
                   ) : (
                     filteredTeams.map(
                       (team) => (
                         <button
-                          key={team.id}
+                          key={
+                            team.id
+                          }
                           type="button"
                           onClick={() =>
                             addFavourite(
@@ -1355,28 +1791,39 @@ export default function Home() {
                             )
                           }
                           style={{
-                            display: "block",
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "11px 3px",
+                            display:
+                              "block",
+                            width:
+                              "100%",
+                            textAlign:
+                              "left",
+                            padding:
+                              "11px 3px",
                             border: 0,
                             borderBottom:
                               "1px solid #eaecf0",
-                            background: "white",
+                            background:
+                              "white",
                           }}
                         >
                           <strong>
-                            {team.name}
+                            {
+                              team.name
+                            }
                           </strong>
 
                           {team.categoryName && (
                             <div
                               style={{
-                                fontSize: "12px",
-                                color: "#667085",
+                                fontSize:
+                                  "12px",
+                                color:
+                                  "#667085",
                               }}
                             >
-                              {team.categoryName}
+                              {
+                                team.categoryName
+                              }
                             </div>
                           )}
                         </button>
@@ -1386,13 +1833,16 @@ export default function Home() {
 
                   {!teamsLoading &&
                     selectedCategory &&
-                    filteredTeams.length === 0 && (
+                    filteredTeams.length ===
+                      0 && (
                       <p
                         style={{
-                          color: "#667085",
+                          color:
+                            "#667085",
                         }}
                       >
-                        No matching teams.
+                        No matching
+                        teams.
                       </p>
                     )}
                 </div>
