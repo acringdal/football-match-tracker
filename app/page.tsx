@@ -112,6 +112,9 @@ type TeamMatches = {
   response: MatchesResponse;
 };
 
+const FAVOURITES_STORAGE_KEY =
+  "fotballfest-favourites";
+
 function formatDay(timestamp: number | null) {
   if (!timestamp) {
     return "DATE TBD";
@@ -141,7 +144,9 @@ function formatTime(timestamp: number | null) {
 }
 
 function matchTime(match: Match) {
-  return `${formatTime(match.start)}–${formatTime(match.end)}`;
+  return `${formatTime(match.start)}–${formatTime(
+    match.end
+  )}`;
 }
 
 function displayTeamName(
@@ -231,18 +236,14 @@ function MatchCard({
         {match.matchNumber && (
           <>
             {" · "}
-            <span>
-              ⚽ #{match.matchNumber}
-            </span>
+            <span>⚽ #{match.matchNumber}</span>
           </>
         )}
 
         {match.competitionLabel && (
           <>
             {" · "}
-            <span>
-              {match.competitionLabel}
-            </span>
+            <span>{match.competitionLabel}</span>
           </>
         )}
       </div>
@@ -287,25 +288,20 @@ function MatchCard({
 }
 
 export default function Home() {
-  const [tab, setTab] =
-    useState<Tab>("matches");
+  const [tab, setTab] = useState<Tab>("matches");
 
-  const [categories, setCategories] =
-    useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
 
-  const [teams, setTeams] =
-    useState<Team[]>([]);
-
-  const [favourites, setFavourites] =
-    useState<Team[]>([]);
+  const [favourites, setFavourites] = useState<Team[]>([]);
+  const [favouritesLoaded, setFavouritesLoaded] =
+    useState(false);
 
   const [teamMatches, setTeamMatches] =
     useState<TeamMatches[]>([]);
 
-  const [
-    showTeamPicker,
-    setShowTeamPicker,
-  ] = useState(false);
+  const [showTeamPicker, setShowTeamPicker] =
+    useState(false);
 
   const [gender, setGender] =
     useState<Gender>("Girls");
@@ -321,10 +317,8 @@ export default function Home() {
     setCategoriesLoading,
   ] = useState(true);
 
-  const [
-    teamsLoading,
-    setTeamsLoading,
-  ] = useState(false);
+  const [teamsLoading, setTeamsLoading] =
+    useState(false);
 
   const [
     matchesLoading,
@@ -333,6 +327,48 @@ export default function Home() {
 
   const [error, setError] =
     useState("");
+
+  /*
+   * Restore favourite teams from this browser/device.
+   * The hydration flag prevents the initial empty array
+   * from overwriting saved favourites.
+   */
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(
+        FAVOURITES_STORAGE_KEY
+      );
+
+      if (saved) {
+        const parsed = JSON.parse(saved);
+
+        if (Array.isArray(parsed)) {
+          setFavourites(parsed);
+        }
+      }
+    } catch {
+      localStorage.removeItem(
+        FAVOURITES_STORAGE_KEY
+      );
+    } finally {
+      setFavouritesLoaded(true);
+    }
+  }, []);
+
+  /*
+   * Persist favourites after initial restoration
+   * has completed.
+   */
+  useEffect(() => {
+    if (!favouritesLoaded) {
+      return;
+    }
+
+    localStorage.setItem(
+      FAVOURITES_STORAGE_KEY,
+      JSON.stringify(favourites)
+    );
+  }, [favourites, favouritesLoaded]);
 
   useEffect(() => {
     const controller =
@@ -360,9 +396,7 @@ export default function Home() {
         const data: CategoriesResponse =
           await response.json();
 
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setCategories(
             Array.isArray(data.categories)
               ? data.categories
@@ -377,17 +411,13 @@ export default function Home() {
           return;
         }
 
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setError(
             "Could not load Fotballfest categories."
           );
         }
       } finally {
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setCategoriesLoading(false);
         }
       }
@@ -407,32 +437,24 @@ export default function Home() {
           categories
             .filter(
               (category) =>
-                category.gender ===
-                gender
+                category.gender === gender
             )
             .map(
               (category) =>
                 category.age
             )
         )
-      ).sort(
-        (a, b) => a - b
-      );
+      ).sort((a, b) => a - b);
     }, [categories, gender]);
 
   const selectedCategory =
     useMemo(() => {
       return categories.find(
         (category) =>
-          category.gender ===
-            gender &&
+          category.gender === gender &&
           category.age === age
       );
-    }, [
-      categories,
-      gender,
-      age,
-    ]);
+    }, [categories, gender, age]);
 
   useEffect(() => {
     if (
@@ -476,8 +498,7 @@ export default function Home() {
 
         if (
           !controller.signal.aborted &&
-          data.categoryId ===
-            categoryId
+          data.categoryId === categoryId
         ) {
           setTeams(
             Array.isArray(data.teams)
@@ -493,18 +514,14 @@ export default function Home() {
           return;
         }
 
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setTeams([]);
           setError(
             "Could not load teams."
           );
         }
       } finally {
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setTeamsLoading(false);
         }
       }
@@ -521,9 +538,15 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (
-      favourites.length === 0
-    ) {
+    /*
+     * Wait until localStorage has been read before
+     * deciding whether there are favourites to load.
+     */
+    if (!favouritesLoaded) {
+      return;
+    }
+
+    if (favourites.length === 0) {
       setTeamMatches([]);
       setMatchesLoading(false);
       return;
@@ -545,8 +568,7 @@ export default function Home() {
                   await fetch(
                     `/api/cupmanager/matches?teamId=${team.id}`,
                     {
-                      cache:
-                        "no-store",
+                      cache: "no-store",
                       signal:
                         controller.signal,
                     }
@@ -570,9 +592,7 @@ export default function Home() {
             )
           );
 
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setTeamMatches(results);
         }
       } catch (error) {
@@ -583,18 +603,14 @@ export default function Home() {
           return;
         }
 
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setTeamMatches([]);
           setError(
             "Could not load matches."
           );
         }
       } finally {
-        if (
-          !controller.signal.aborted
-        ) {
+        if (!controller.signal.aborted) {
           setMatchesLoading(false);
         }
       }
@@ -605,7 +621,10 @@ export default function Home() {
     return () => {
       controller.abort();
     };
-  }, [favourites]);
+  }, [
+    favourites,
+    favouritesLoaded,
+  ]);
 
   const filteredTeams =
     useMemo(() => {
@@ -714,16 +733,13 @@ export default function Home() {
       categories
         .filter(
           (category) =>
-            category.gender ===
-            value
+            category.gender === value
         )
         .map(
           (category) =>
             category.age
         )
-        .sort(
-          (a, b) => a - b
-        );
+        .sort((a, b) => a - b);
 
     if (
       ages.length > 0 &&
@@ -888,6 +904,7 @@ export default function Home() {
           )}
 
           {!matchesLoading &&
+            favouritesLoaded &&
             favourites.length ===
               0 && (
               <div
@@ -938,8 +955,7 @@ export default function Home() {
             )}
 
           {!matchesLoading &&
-            favourites.length >
-              0 &&
+            favourites.length > 0 &&
             confirmedMatches.length ===
               0 && (
               <p
@@ -1101,8 +1117,16 @@ export default function Home() {
               marginTop: "18px",
             }}
           >
-            {favourites.length ===
-            0 ? (
+            {!favouritesLoaded ? (
+              <p
+                style={{
+                  color: "#667085",
+                }}
+              >
+                Loading favourites...
+              </p>
+            ) : favourites.length ===
+              0 ? (
               <p
                 style={{
                   color: "#667085",
