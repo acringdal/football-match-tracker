@@ -1422,7 +1422,7 @@ export default function Home() {
 
                 [key]: {
                   loading: false,
-                  data: null,
+                  data:
                 },
               })
             );
@@ -1439,7 +1439,6 @@ export default function Home() {
   };
 }, [
   weatherMatches,
-  weatherByKey,
 ]);
 
   function handleGenderChange(
