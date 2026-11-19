@@ -10,6 +10,8 @@ type RecordValue = Record<string, unknown>;
 type TeamSummary = {
   id: number | null;
   name: string;
+  winnerOfMatch?: string | null;
+  qualificationLabel?: string | null;
 };
 
 type ArenaSummary = {
@@ -21,14 +23,15 @@ type ArenaSummary = {
 type ScoreSummary = {
   home: number;
   away: number;
-  for: number;
-  against: number;
+  for: number | null;
+  against: number | null;
   penalties: boolean;
   walkover: boolean;
 };
 
 type MatchSummary = {
   id: number;
+  matchNumber: string | null;
 
   selectedTeam: TeamSummary;
   opponent: TeamSummary;
@@ -52,15 +55,22 @@ type MatchSummary = {
 
   status: "live" | "played" | "upcoming";
 
-  roundName: string | null;
+  group: string | null;
   stageName: string | null;
+  roundName: string | null;
+  competitionLabel: string | null;
 
   nextMatchWinner: string | null;
   nextMatchLoser: string | null;
 };
 
-function isRecord(value: unknown): value is RecordValue {
-  return typeof value === "object" && value !== null;
+function isRecord(
+  value: unknown
+): value is RecordValue {
+  return (
+    typeof value === "object" &&
+    value !== null
+  );
 }
 
 function getString(
@@ -127,9 +137,13 @@ function getHref(
   value: unknown,
   key: string
 ): string | undefined {
-  const reference = getRecord(value, key);
+  const reference =
+    getRecord(value, key);
 
-  return getString(reference, "href");
+  return getString(
+    reference,
+    "href"
+  );
 }
 
 function getEntity(
@@ -140,7 +154,8 @@ function getEntity(
     return undefined;
   }
 
-  const item = responses[reference];
+  const item =
+    responses[reference];
 
   if (!isRecord(item)) {
     return undefined;
@@ -161,7 +176,8 @@ function extractIdFromReference(
     return null;
   }
 
-  const match = reference.match(pattern);
+  const match =
+    reference.match(pattern);
 
   if (!match?.[1]) {
     return null;
@@ -203,16 +219,37 @@ function getTeamName(
     return null;
   }
 
-  const name = getRecord(entity, "name");
+  const name =
+    getRecord(entity, "name");
 
   return (
     getString(name, "clubName") ??
     getString(name, "fullName") ??
     getLocalizedText(name) ??
-    getString(entity, "originalName") ??
-    getString(entity, "shortName") ??
+    getString(
+      entity,
+      "originalName"
+    ) ??
+    getString(
+      entity,
+      "shortName"
+    ) ??
     null
   );
+}
+
+function getWinnerMatchNumber(
+  name: string | null
+): string | null {
+  if (!name) {
+    return null;
+  }
+
+  const match = name.match(
+    /^(?:Vinn\.?|Winner(?: of)?(?: match)?)[\s#]*(\d+)$/i
+  );
+
+  return match?.[1] ?? null;
 }
 
 function getTeamFromActor(
@@ -223,6 +260,8 @@ function getTeamFromActor(
     return {
       id: null,
       name: "To be decided",
+      winnerOfMatch: null,
+      qualificationLabel: null,
     };
   }
 
@@ -230,7 +269,10 @@ function getTeamFromActor(
     getHref(actorEntity, "team");
 
   const teamEntity =
-    getEntity(responses, teamReference);
+    getEntity(
+      responses,
+      teamReference
+    );
 
   const teamId =
     getNumber(teamEntity, "id") ??
@@ -240,18 +282,31 @@ function getTeamFromActor(
     );
 
   const actorName =
-    getLocalizedText(actorEntity.name);
+    getLocalizedText(
+      actorEntity.name
+    );
 
   const teamName =
     getTeamName(teamEntity) ??
     actorName ??
-    getString(actorEntity, "originalName") ??
-    getString(actorEntity, "shortName") ??
+    getString(
+      actorEntity,
+      "originalName"
+    ) ??
+    getString(
+      actorEntity,
+      "shortName"
+    ) ??
     "To be decided";
 
   return {
     id: teamId,
     name: teamName,
+    winnerOfMatch:
+      getWinnerMatchNumber(
+        teamName
+      ),
+    qualificationLabel: null,
   };
 }
 
@@ -259,10 +314,14 @@ function getSelectedTeam(
   responses: RecordValue,
   teamId: number
 ): TeamSummary {
-  const reference = `Team({id:${teamId}})`;
+  const reference =
+    `Team({id:${teamId}})`;
 
   const entity =
-    getEntity(responses, reference);
+    getEntity(
+      responses,
+      reference
+    );
 
   return {
     id: teamId,
@@ -277,20 +336,32 @@ function getArena(
   responses: RecordValue
 ): ArenaSummary {
   const arenaReference =
-    getHref(matchEntity, "arena");
+    getHref(
+      matchEntity,
+      "arena"
+    );
 
   const arenaEntity =
-    getEntity(responses, arenaReference);
+    getEntity(
+      responses,
+      arenaReference
+    );
 
   const arenaId =
-    getNumber(arenaEntity, "id") ??
+    getNumber(
+      arenaEntity,
+      "id"
+    ) ??
     extractIdFromReference(
       arenaReference,
       /Arena\(\{id:(\d+)/
     );
 
   const locationReference =
-    getHref(arenaEntity, "location");
+    getHref(
+      arenaEntity,
+      "location"
+    );
 
   const locationId =
     extractIdFromReference(
@@ -299,9 +370,18 @@ function getArena(
     );
 
   const arenaName =
-    getString(arenaEntity, "completeName") ??
-    getString(arenaEntity, "fieldName") ??
-    getString(arenaEntity, "name") ??
+    getString(
+      arenaEntity,
+      "completeName"
+    ) ??
+    getString(
+      arenaEntity,
+      "fieldName"
+    ) ??
+    getString(
+      arenaEntity,
+      "name"
+    ) ??
     null;
 
   return {
@@ -319,52 +399,74 @@ function getResult(
   awayTeamId: number | null
 ): ScoreSummary | null {
   const resultReference =
-    getHref(matchEntity, "result");
+    getHref(
+      matchEntity,
+      "result"
+    );
 
   const resultEntity =
-    getEntity(responses, resultReference);
+    getEntity(
+      responses,
+      resultReference
+    );
 
   if (!resultEntity) {
     return null;
   }
 
   const resultLive =
-    getBoolean(resultEntity, "live") ??
-    false;
+    getBoolean(
+      resultEntity,
+      "live"
+    ) ?? false;
 
   const resultFinished =
-    getBoolean(resultEntity, "finished") ??
-    false;
+    getBoolean(
+      resultEntity,
+      "finished"
+    ) ?? false;
 
-  // Don't display the default 0-0 for
-  // matches that have not started.
-  if (!resultLive && !resultFinished) {
+  if (
+    !resultLive &&
+    !resultFinished
+  ) {
     return null;
   }
 
   const homeGoals =
-    getNumber(resultEntity, "homeGoals") ??
-    0;
+    getNumber(
+      resultEntity,
+      "homeGoals"
+    ) ?? 0;
 
   const awayGoals =
-    getNumber(resultEntity, "awayGoals") ??
-    0;
+    getNumber(
+      resultEntity,
+      "awayGoals"
+    ) ?? 0;
 
   const selectedIsHome =
-    homeTeamId === selectedTeamId;
+    homeTeamId ===
+    selectedTeamId;
 
   const selectedIsAway =
-    awayTeamId === selectedTeamId;
+    awayTeamId ===
+    selectedTeamId;
 
-  let goalsFor = homeGoals;
-  let goalsAgainst = awayGoals;
+  let goalsFor: number | null =
+    null;
+
+  let goalsAgainst: number | null =
+    null;
+
+  if (selectedIsHome) {
+    goalsFor = homeGoals;
+    goalsAgainst = awayGoals;
+  }
 
   if (selectedIsAway) {
     goalsFor = awayGoals;
     goalsAgainst = homeGoals;
-  } else if (!selectedIsHome) {
-    goalsFor = homeGoals;
-    goalsAgainst = awayGoals;
   }
 
   return {
@@ -392,10 +494,13 @@ function getReferenceText(
   key: string,
   responses: RecordValue
 ): string | null {
-  const directValue = entity[key];
+  const directValue =
+    entity[key];
 
   const directText =
-    getLocalizedText(directValue);
+    getLocalizedText(
+      directValue
+    );
 
   if (directText) {
     return directText;
@@ -405,18 +510,30 @@ function getReferenceText(
     getHref(entity, key);
 
   const referencedEntity =
-    getEntity(responses, reference);
+    getEntity(
+      responses,
+      reference
+    );
 
   if (!referencedEntity) {
     return null;
   }
 
+  const referencedName =
+    referencedEntity.name;
+
   return (
     getLocalizedText(
-      referencedEntity.name
+      referencedName
     ) ??
-    getString(referencedEntity, "name") ??
-    getString(referencedEntity, "title") ??
+    getString(
+      referencedEntity,
+      "name"
+    ) ??
+    getString(
+      referencedEntity,
+      "title"
+    ) ??
     null
   );
 }
@@ -436,6 +553,115 @@ function getStatus(
   return "upcoming";
 }
 
+function getGroup(
+  divisionName: string | null
+): string | null {
+  if (!divisionName) {
+    return null;
+  }
+
+  const match =
+    divisionName.match(
+      /(?:Pulje|Group)\s+([A-ZÆØÅ0-9]+)/i
+    );
+
+  return (
+    match?.[1]?.toUpperCase() ??
+    null
+  );
+}
+
+function normalizeRoundName(
+  roundName: string | null
+): string | null {
+  if (!roundName) {
+    return null;
+  }
+
+  const lower =
+    roundName.toLowerCase();
+
+  if (
+    lower.includes("1/4") ||
+    lower.includes("quarter")
+  ) {
+    return "Quarterfinal";
+  }
+
+  if (
+    lower.includes("1/2") ||
+    lower.includes("semi")
+  ) {
+    return "Semifinal";
+  }
+
+  if (
+    lower === "final" ||
+    lower.includes("finale")
+  ) {
+    return "Final";
+  }
+
+  return roundName;
+}
+
+function getCompetitionLabel(
+  group: string | null,
+  stageName: string | null,
+  roundName: string | null
+): string | null {
+  const stageLower =
+    stageName?.toLowerCase() ??
+    "";
+
+  if (
+    group ||
+    stageLower.includes("gruppe")
+  ) {
+    return group
+      ? `Group ${group}`
+      : "Group stage";
+  }
+
+  const normalizedRound =
+    normalizeRoundName(
+      roundName
+    );
+
+  let prefix = "";
+
+  if (
+    stageLower.includes(
+      "sluttspill a"
+    ) ||
+    stageLower.includes(
+      "playoff a"
+    )
+  ) {
+    prefix = "A";
+  }
+
+  if (
+    stageLower.includes(
+      "sluttspill b"
+    ) ||
+    stageLower.includes(
+      "playoff b"
+    )
+  ) {
+    prefix = "B";
+  }
+
+  const label = [
+    prefix,
+    normalizedRound,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return label || null;
+}
+
 export async function GET(
   request: NextRequest
 ) {
@@ -446,11 +672,14 @@ export async function GET(
 
   if (
     !teamIdParam ||
-    !/^\d+$/.test(teamIdParam)
+    !/^\d+$/.test(
+      teamIdParam
+    )
   ) {
     return NextResponse.json(
       {
-        error: "Valid teamId is required",
+        error:
+          "Valid teamId is required",
       },
       {
         status: 400,
@@ -458,7 +687,8 @@ export async function GET(
     );
   }
 
-  const teamId = Number(teamIdParam);
+  const teamId =
+    Number(teamIdParam);
 
   const call =
     `Team({id:${teamId}})` +
@@ -485,7 +715,8 @@ export async function GET(
     `stage:{}` +
     `}}]}]}`;
 
-  const url = new URL(BASE_URL);
+  const url =
+    new URL(BASE_URL);
 
   url.searchParams.set(
     "call",
@@ -499,22 +730,27 @@ export async function GET(
 
   url.searchParams.set(
     "tournamentId",
-    String(TOURNAMENT_ID)
+    String(
+      TOURNAMENT_ID
+    )
   );
 
   try {
-    const response = await fetch(
-      url.toString(),
-      {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "Mozilla/5.0",
-          Referer:
-            "https://fotballfest.cupmanager.net/",
-        },
-        cache: "no-store",
-      }
-    );
+    const response =
+      await fetch(
+        url.toString(),
+        {
+          headers: {
+            Accept:
+              "application/json",
+            "User-Agent":
+              "Mozilla/5.0",
+            Referer:
+              "https://fotballfest.cupmanager.net/",
+          },
+          cache: "no-store",
+        }
+      );
 
     const body =
       await response.text();
@@ -538,7 +774,9 @@ export async function GET(
 
     const responses =
       isRecord(data) &&
-      isRecord(data.responses)
+      isRecord(
+        data.responses
+      )
         ? data.responses
         : {};
 
@@ -548,14 +786,19 @@ export async function GET(
         teamId
       );
 
-    const matches: MatchSummary[] = [];
+    const matches:
+      MatchSummary[] = [];
 
     for (
       const [key, item]
-      of Object.entries(responses)
+      of Object.entries(
+        responses
+      )
     ) {
       if (
-        !key.startsWith("Match({id:")
+        !key.startsWith(
+          "Match({id:"
+        )
       ) {
         continue;
       }
@@ -564,7 +807,8 @@ export async function GET(
         continue;
       }
 
-      const entity = item.entity;
+      const entity =
+        item.entity;
 
       if (!isRecord(entity)) {
         continue;
@@ -580,17 +824,26 @@ export async function GET(
       }
 
       const id =
-        getNumber(entity, "id");
+        getNumber(
+          entity,
+          "id"
+        );
 
       if (!id) {
         continue;
       }
 
       const homeReference =
-        getHref(entity, "home");
+        getHref(
+          entity,
+          "home"
+        );
 
       const awayReference =
-        getHref(entity, "away");
+        getHref(
+          entity,
+          "away"
+        );
 
       const homeActor =
         getEntity(
@@ -619,31 +872,25 @@ export async function GET(
       let homeAway:
         | "home"
         | "away"
-        | "unknown" = "unknown";
+        | "unknown" =
+          "unknown";
 
-      let opponent = awayTeam;
+      let opponent =
+        awayTeam;
 
-      if (homeTeam.id === teamId) {
+      if (
+        homeTeam.id ===
+        teamId
+      ) {
         homeAway = "home";
         opponent = awayTeam;
       } else if (
-        awayTeam.id === teamId
+        awayTeam.id ===
+        teamId
       ) {
         homeAway = "away";
         opponent = homeTeam;
       }
-
-      const matchLive =
-        getBoolean(
-          entity,
-          "live"
-        ) ?? false;
-
-      const matchFinished =
-        getBoolean(
-          entity,
-          "finished"
-        ) ?? false;
 
       const resultReference =
         getHref(
@@ -661,13 +908,23 @@ export async function GET(
         getBoolean(
           resultEntity,
           "live"
-        ) ?? matchLive;
+        ) ??
+        getBoolean(
+          entity,
+          "live"
+        ) ??
+        false;
 
       const finished =
         getBoolean(
           resultEntity,
           "finished"
-        ) ?? matchFinished;
+        ) ??
+        getBoolean(
+          entity,
+          "finished"
+        ) ??
+        false;
 
       const scheduled =
         getBoolean(
@@ -675,17 +932,66 @@ export async function GET(
           "isScheduled"
         ) ?? true;
 
-      const score =
-        getResult(
+      const divisionReference =
+        getHref(
           entity,
-          responses,
-          teamId,
-          homeTeam.id,
-          awayTeam.id
+          "division"
         );
+
+      const divisionEntity =
+        getEntity(
+          responses,
+          divisionReference
+        );
+
+      const divisionName =
+        getLocalizedText(
+          divisionEntity?.name
+        ) ?? null;
+
+      const group =
+        getGroup(
+          divisionName
+        );
+
+      const stageName =
+        getReferenceText(
+          entity,
+          "stage",
+          responses
+        );
+
+      const roundName =
+        getReferenceText(
+          entity,
+          "roundName",
+          responses
+        );
+
+      const competitionLabel =
+        getCompetitionLabel(
+          group,
+          stageName,
+          roundName
+        );
+
+      const matchNumberValue =
+        entity.matchNr;
+
+      const matchNumber =
+        typeof matchNumberValue ===
+          "string"
+          ? matchNumberValue
+          : typeof matchNumberValue ===
+              "number"
+            ? String(
+                matchNumberValue
+              )
+            : null;
 
       matches.push({
         id,
+        matchNumber,
 
         selectedTeam,
         opponent,
@@ -719,7 +1025,14 @@ export async function GET(
             responses
           ),
 
-        score,
+        score:
+          getResult(
+            entity,
+            responses,
+            teamId,
+            homeTeam.id,
+            awayTeam.id
+          ),
 
         live,
         finished,
@@ -731,19 +1044,10 @@ export async function GET(
             finished
           ),
 
-        roundName:
-          getReferenceText(
-            entity,
-            "roundName",
-            responses
-          ),
-
-        stageName:
-          getReferenceText(
-            entity,
-            "stage",
-            responses
-          ),
+        group,
+        stageName,
+        roundName,
+        competitionLabel,
 
         nextMatchWinner:
           getHref(
@@ -762,10 +1066,12 @@ export async function GET(
     const uniqueMatches =
       Array.from(
         new Map(
-          matches.map((match) => [
-            match.id,
-            match,
-          ])
+          matches.map(
+            (match) => [
+              match.id,
+              match,
+            ]
+          )
         ).values()
       ).sort(
         (a, b) =>
@@ -773,23 +1079,50 @@ export async function GET(
           (b.start ?? 0)
       );
 
-    const liveMatches =
+    /*
+     * Confirmed matches are matches in which the selected
+     * favourite team is already assigned as home or away.
+     */
+    const confirmedMatches =
       uniqueMatches.filter(
         (match) =>
-          match.status === "live"
+          match.homeAway !==
+          "unknown"
+      );
+
+    /*
+     * Qualification matches are unresolved future bracket
+     * positions that the favourite may reach.
+     */
+    const possibleMatches =
+      uniqueMatches.filter(
+        (match) =>
+          match.homeAway ===
+            "unknown" &&
+          match.status !==
+            "played"
+      );
+
+    const liveMatches =
+      confirmedMatches.filter(
+        (match) =>
+          match.status ===
+          "live"
       );
 
     const upcomingMatches =
-      uniqueMatches.filter(
+      confirmedMatches.filter(
         (match) =>
-          match.status === "upcoming"
+          match.status ===
+          "upcoming"
       );
 
     const playedMatches =
-      uniqueMatches
+      confirmedMatches
         .filter(
           (match) =>
-            match.status === "played"
+            match.status ===
+            "played"
         )
         .sort(
           (a, b) =>
@@ -799,12 +1132,15 @@ export async function GET(
 
     return NextResponse.json({
       ok: true,
+
       tournament:
         "Fotballfest 2026",
+
       tournamentId:
         TOURNAMENT_ID,
 
-      team: selectedTeam,
+      team:
+        selectedTeam,
 
       count:
         uniqueMatches.length,
@@ -812,19 +1148,28 @@ export async function GET(
       counts: {
         live:
           liveMatches.length,
+
         upcoming:
           upcomingMatches.length,
+
         played:
           playedMatches.length,
+
+        possible:
+          possibleMatches.length,
       },
 
-      liveAndUpcoming: [
-        ...liveMatches,
-        ...upcomingMatches,
-      ],
+      live:
+        liveMatches,
+
+      upcoming:
+        upcomingMatches,
 
       played:
         playedMatches,
+
+      possible:
+        possibleMatches,
 
       matches:
         uniqueMatches,
@@ -836,6 +1181,7 @@ export async function GET(
           error instanceof Error
             ? error.message
             : "Unknown CupManager error",
+
         teamId,
       },
       {
