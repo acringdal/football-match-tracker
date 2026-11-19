@@ -1290,146 +1290,157 @@ export default function Home() {
       qualificationMatches,
     ]);
 
-  useEffect(() => {
-    const controller =
-      new AbortController();
+ useEffect(() => {
+  const controller =
+    new AbortController();
 
-    const missingMatches =
-      weatherMatches.filter(
-        (match) => {
+  const missingMatches =
+    weatherMatches.filter(
+      (match) => {
+        const key =
+          weatherKey(match);
+
+        if (!key) {
+          return false;
+        }
+
+        return !weatherByKey[key];
+      }
+    );
+
+  if (
+    missingMatches.length === 0
+  ) {
+    return;
+  }
+
+  setWeatherByKey(
+    (current) => {
+      const next = {
+        ...current,
+      };
+
+      for (
+        const match of missingMatches
+      ) {
+        const key =
+          weatherKey(match);
+
+        if (!key) {
+          continue;
+        }
+
+        next[key] = {
+          loading: true,
+          data: null,
+        };
+      }
+
+      return next;
+    }
+  );
+
+  async function loadWeather() {
+    await Promise.all(
+      missingMatches.map(
+        async (match) => {
           const key =
             weatherKey(match);
 
-          if (!key) {
-            return false;
+          const locationId =
+            match.arena?.locationId;
+
+          const start =
+            match.start;
+
+          if (
+            !key ||
+            typeof locationId !==
+              "number" ||
+            typeof start !==
+              "number"
+          ) {
+            return;
           }
 
-          return !weatherByKey[key];
-        }
-      );
+          try {
+            const response =
+              await fetch(
+                `/api/weather?locationId=${locationId}&time=${start}`,
+                {
+                  cache: "no-store",
+                  signal:
+                    controller.signal,
+                }
+              );
 
-    if (
-      missingMatches.length === 0
-    ) {
-      return;
-    }
+            if (!response.ok) {
+              throw new Error(
+                "Weather unavailable"
+              );
+            }
 
-    for (
-      const match of missingMatches
-    ) {
-      const key =
-        weatherKey(match);
-
-      if (!key) {
-        continue;
-      }
-
-      setWeatherByKey(
-        (current) => ({
-          ...current,
-          {
-            loading: true,
-            data: null,
-          },
-        })
-      );
-    }
-
-    async function loadWeather() {
-      await Promise.all(
-        missingMatches.map(
-          async (match) => {
-            const key =
-              weatherKey(match);
-
-            const locationId =
-              match.arena?.locationId;
-
-            const start =
-              match.start;
+            const data:
+              WeatherResponse =
+                await response.json();
 
             if (
-              !key ||
-              typeof locationId !==
-                "number" ||
-              typeof start !==
-                "number"
+              controller.signal.aborted
             ) {
               return;
             }
 
-            try {
-              const response =
-                await fetch(
-                  `/api/weather?locationId=${locationId}&time=${start}`,
-                  {
-                    cache: "no-store",
-                    signal:
-                      controller.signal,
-                  }
-                );
+            setWeatherByKey(
+              (current) => ({
+                ...current,
 
-              if (!response.ok) {
-                throw new Error(
-                  "Weather unavailable"
-                );
-              }
-
-              const data:
-                WeatherResponse =
-                  await response.json();
-
-              if (
-                !controller.signal.aborted
-              ) {
-                setWeatherByKey(
-                  (current) => ({
-                    ...current,
-                    {
-                      loading: false,
-                      data,
-                    },
-                  })
-                );
-              }
-            } catch (error) {
-              if (
-                error instanceof
-                  DOMException &&
-                error.name ===
-                  "AbortError"
-              ) {
-                return;
-              }
-
-              if (
-                !controller.signal.aborted
-              ) {
-                setWeatherByKey(
-                  (current) => ({
-                    ...current,
-                    {
-                      loading: false,
-                      data: null,
-                    },
-                  })
-                );
-              }
+                [key]: {
+                  : false,
+                  data,
+                },
+              })
+            );
+          } catch (error) {
+            if (
+              error instanceof
+                DOMException &&
+              error.name ===
+                "AbortError"
+            ) {
+              return;
             }
+
+            if (
+              controller.signal.aborted
+            ) {
+              return;
+            }
+
+            setWeatherByKey(
+              (current) => ({
+                ...current,
+
+                {
+                  loading: false,
+                  data: null,
+                },
+              })
+            );
           }
-        )
-      );
-    }
+        }
+      )
+    );
+  }
 
-    loadWeather();
+  loadWeather();
 
-    return () => {
-      controller.abort();
-    };
-  }, [
-    weatherMatches,
-    weatherByKey,
-  ]);
+  return () => {
+    controller.abort();
+  };
+}, [
+  weatherMatches,
+  weatherByKey,
+]);
 
   function handleGenderChange(
     value: Gender
