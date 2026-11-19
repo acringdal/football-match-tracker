@@ -81,6 +81,10 @@ type Match = {
   competitionLabel?: string | null;
 };
 
+type DisplayMatch = Match & {
+  classLabel: string | null;
+};
+
 type CategoriesResponse = {
   ok: boolean;
   categories?: Category[];
@@ -161,48 +165,65 @@ function displayTeamName(
   return team.name ?? fallback;
 }
 
-function getClassLabel(
-  match: Match,
-  favourites: Team[]
-) {
-  const selectedTeamId =
-    match.selectedTeam?.id;
+function getTeamClass(team: Team) {
+  const source = [
+    team.categoryName,
+    team.fullName,
+    team.name,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  if (!selectedTeamId) {
+  const result = source.match(
+    /\b([JG])\s*(\d{2})\b/i
+  );
+
+  if (!result) {
     return null;
   }
 
-  const favourite =
-    favourites.find(
-      (team) =>
-        team.id === selectedTeamId
-    );
-
-  if (!favourite) {
-    return null;
-  }
-
-  const source =
-    favourite.categoryName ??
-    favourite.fullName ??
-    "";
-
-  const classMatch =
-    source.match(
-      /\b([JG]\s*\d{2})\b/i
-    );
-
-  if (!classMatch?.[1]) {
-    return null;
-  }
-
-  return classMatch[1]
-    .replace(/\s+/g, "")
-    .toUpperCase();
+  return `${result[1].toUpperCase()}${result[2]}`;
 }
 
-function groupByDay(matches: Match[]) {
-  const days = new Map<string, Match[]>();
+function withClassLabel(
+  matches: Match[] | undefined,
+  team: Team
+): DisplayMatch[] {
+  if (!Array.isArray(matches)) {
+    return [];
+  }
+
+  const classLabel =
+    getTeamClass(team);
+
+  return matches.map((match) => ({
+    ...match,
+    classLabel,
+  }));
+}
+
+function hasSafeCompetitionLabel(
+  value: string | null | undefined
+) {
+  if (!value) {
+    return false;
+  }
+
+  return (
+    !value.includes("Match(") &&
+    !value.includes("Stage(") &&
+    !value.includes("$")
+  );
+}
+
+function groupByDay(
+  matches: DisplayMatch[]
+) {
+  const days =
+    new Map<
+      string,
+      DisplayMatch[]
+    >();
 
   for (const match of matches) {
     const day =
@@ -220,10 +241,23 @@ function groupByDay(matches: Match[]) {
   );
 }
 
+function uniqueMatches(
+  matches: DisplayMatch[]
+) {
+  return Array.from(
+    new Map(
+      matches.map((match) => [
+        match.id,
+        match,
+      ])
+    ).values()
+  );
+}
+
 function ScoreRows({
   match,
 }: {
-  match: Match;
+  match: DisplayMatch;
 }) {
   if (!match.score) {
     return null;
@@ -234,6 +268,24 @@ function ScoreRows({
 
   const awayName =
     displayTeamName(match.awayTeam);
+
+  const scoreStyle = {
+    width: "34px",
+    textAlign: "left" as const,
+    fontWeight: 800,
+    fontSize: "18px",
+    fontVariantNumeric:
+      "tabular-nums",
+  };
+
+  const teamStyle = {
+    minWidth: 0,
+    fontWeight: 700,
+    fontSize: "16px",
+    lineHeight: 1.35,
+    overflowWrap:
+      "anywhere" as const,
+  };
 
   return (
     <div
@@ -247,51 +299,19 @@ function ScoreRows({
         marginTop: "8px",
       }}
     >
-      <div
-        style={{
-          minWidth: 0,
-          fontWeight: 700,
-          fontSize: "16px",
-          overflowWrap: "anywhere",
-        }}
-      >
+      <div style={teamStyle}>
         {homeName}
       </div>
 
-      <div
-        style={{
-          width: "34px",
-          textAlign: "left",
-          fontWeight: 800,
-          fontSize: "18px",
-          fontVariantNumeric:
-            "tabular-nums",
-        }}
-      >
+      <div style={scoreStyle}>
         {match.score.home}
       </div>
 
-      <div
-        style={{
-          minWidth: 0,
-          fontWeight: 700,
-          fontSize: "16px",
-          overflowWrap: "anywhere",
-        }}
-      >
+      <div style={teamStyle}>
         {awayName}
       </div>
 
-      <div
-        style={{
-          width: "34px",
-          textAlign: "left",
-          fontWeight: 800,
-          fontSize: "18px",
-          fontVariantNumeric:
-            "tabular-nums",
-        }}
-      >
+      <div style={scoreStyle}>
         {match.score.away}
       </div>
     </div>
@@ -300,39 +320,27 @@ function ScoreRows({
 
 function MatchMeta({
   match,
-  classLabel,
 }: {
-  match: Match;
-  classLabel: string | null;
+  match: DisplayMatch;
 }) {
-  const textParts: string[] = [];
-
-  if (classLabel) {
-    textParts.push(classLabel);
-  }
-
-  if (
-    match.competitionLabel &&
-    !match.competitionLabel.includes(
-      "Match("
-    ) &&
-    !match.competitionLabel.includes(
-      "Stage("
-    ) &&
-    !match.competitionLabel.includes(
-      "$"
-    )
-  ) {
-    textParts.push(
+  const competitionLabel =
+    hasSafeCompetitionLabel(
       match.competitionLabel
+    )
+      ? match.competitionLabel
+      : null;
+
+  const hasPrimaryMetadata =
+    Boolean(
+      match.classLabel ||
+        competitionLabel
     );
-  }
 
   const hasMatchNumber =
     Boolean(match.matchNumber);
 
   if (
-    textParts.length === 0 &&
+    !hasPrimaryMetadata &&
     !hasMatchNumber
   ) {
     return null;
@@ -347,23 +355,28 @@ function MatchMeta({
         lineHeight: 1.4,
       }}
     >
-      {textParts.length > 0 && (
-        <span
-          style={{
-            fontWeight: 600,
-          }}
-        >
-          {textParts.join(" · ")}
-        </span>
+      {hasPrimaryMetadata && (
+        <strong>
+          {[
+            match.classLabel,
+            competitionLabel,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </strong>
       )}
 
-      {textParts.length > 0 &&
+      {hasPrimaryMetadata &&
         hasMatchNumber && (
           <span> · </span>
         )}
 
       {hasMatchNumber && (
-        <span>
+        <span
+          style={{
+            fontWeight: 400,
+          }}
+        >
           ⚽ #{match.matchNumber}
         </span>
       )}
@@ -373,11 +386,9 @@ function MatchMeta({
 
 function MatchCard({
   match,
-  classLabel,
   qualification = false,
 }: {
-  match: Match;
-  classLabel: string | null;
+  match: DisplayMatch;
   qualification?: boolean;
 }) {
   const selectedTeamName =
@@ -388,7 +399,7 @@ function MatchCard({
     Boolean(match.score);
 
   return (
-    <div
+    <article
       style={{
         background: "white",
         borderRadius: "12px",
@@ -452,10 +463,7 @@ function MatchCard({
         </div>
       )}
 
-      <MatchMeta
-        match={match}
-        classLabel={classLabel}
-      />
+      <MatchMeta match={match} />
 
       <div
         style={{
@@ -482,7 +490,7 @@ function MatchCard({
           reach this match
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -935,24 +943,14 @@ export default function Home() {
     useMemo(() => {
       const all =
         teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.live
+          ({ team, response }) =>
+            withClassLabel(
+              response.live,
+              team
             )
-              ? response.live
-              : []
         );
 
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
+      return uniqueMatches(all).sort(
         (a, b) =>
           (a.start ?? 0) -
           (b.start ?? 0)
@@ -963,24 +961,14 @@ export default function Home() {
     useMemo(() => {
       const all =
         teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.upcoming
+          ({ team, response }) =>
+            withClassLabel(
+              response.upcoming,
+              team
             )
-              ? response.upcoming
-              : []
         );
 
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
+      return uniqueMatches(all).sort(
         (a, b) =>
           (a.start ?? 0) -
           (b.start ?? 0)
@@ -989,19 +977,10 @@ export default function Home() {
 
   const liveAndUpcoming =
     useMemo(() => {
-      return Array.from(
-        new Map(
-          [
-            ...liveMatches,
-            ...upcomingMatches,
-          ].map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
+      return uniqueMatches([
+        ...liveMatches,
+        ...upcomingMatches,
+      ]).sort(
         (a, b) =>
           (a.start ?? 0) -
           (b.start ?? 0)
@@ -1015,24 +994,14 @@ export default function Home() {
     useMemo(() => {
       const all =
         teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.played
+          ({ team, response }) =>
+            withClassLabel(
+              response.played,
+              team
             )
-              ? response.played
-              : []
         );
 
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
+      return uniqueMatches(all).sort(
         (a, b) =>
           (b.start ?? 0) -
           (a.start ?? 0)
@@ -1043,24 +1012,14 @@ export default function Home() {
     useMemo(() => {
       const all =
         teamMatches.flatMap(
-          ({ response }) =>
-            Array.isArray(
-              response.possible
+          ({ team, response }) =>
+            withClassLabel(
+              response.possible,
+              team
             )
-              ? response.possible
-              : []
         );
 
-      return Array.from(
-        new Map(
-          all.map(
-            (match) => [
-              match.id,
-              match,
-            ]
-          )
-        ).values()
-      ).sort(
+      return uniqueMatches(all).sort(
         (a, b) =>
           (a.start ?? 0) -
           (b.start ?? 0)
@@ -1216,7 +1175,7 @@ export default function Home() {
   }
 
   function renderMatchDays(
-    matches: Match[],
+    matches: DisplayMatch[],
     qualification = false
   ) {
     return groupByDay(matches).map(
@@ -1245,10 +1204,6 @@ export default function Home() {
               <MatchCard
                 key={match.id}
                 match={match}
-                classLabel={getClassLabel(
-                  match,
-                  favourites
-                )}
                 qualification={
                   qualification
                 }
@@ -1356,8 +1311,7 @@ export default function Home() {
 
           {!matchesLoading &&
             favouritesLoaded &&
-            favourites.length ===
-              0 && (
+            favourites.length === 0 && (
               <div
                 style={{
                   background: "white",
