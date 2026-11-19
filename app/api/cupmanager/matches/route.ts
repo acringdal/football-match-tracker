@@ -64,13 +64,8 @@ type MatchSummary = {
   nextMatchLoser: string | null;
 };
 
-function isRecord(
-  value: unknown
-): value is RecordValue {
-  return (
-    typeof value === "object" &&
-    value !== null
-  );
+function isRecord(value: unknown): value is RecordValue {
+  return typeof value === "object" && value !== null;
 }
 
 function getString(
@@ -161,7 +156,8 @@ function getEntity(
     return undefined;
   }
 
-  const entity = item.entity;
+  const entity =
+    item.entity;
 
   return isRecord(entity)
     ? entity
@@ -183,7 +179,8 @@ function extractIdFromReference(
     return null;
   }
 
-  const id = Number(match[1]);
+  const id =
+    Number(match[1]);
 
   return Number.isFinite(id)
     ? id
@@ -226,14 +223,8 @@ function getTeamName(
     getString(name, "clubName") ??
     getString(name, "fullName") ??
     getLocalizedText(name) ??
-    getString(
-      entity,
-      "originalName"
-    ) ??
-    getString(
-      entity,
-      "shortName"
-    ) ??
+    getString(entity, "originalName") ??
+    getString(entity, "shortName") ??
     null
   );
 }
@@ -289,23 +280,15 @@ function getTeamFromActor(
   const teamName =
     getTeamName(teamEntity) ??
     actorName ??
-    getString(
-      actorEntity,
-      "originalName"
-    ) ??
-    getString(
-      actorEntity,
-      "shortName"
-    ) ??
+    getString(actorEntity, "originalName") ??
+    getString(actorEntity, "shortName") ??
     "To be decided";
 
   return {
     id: teamId,
     name: teamName,
     winnerOfMatch:
-      getWinnerMatchNumber(
-        teamName
-      ),
+      getWinnerMatchNumber(teamName),
     qualificationLabel: null,
   };
 }
@@ -348,10 +331,7 @@ function getArena(
     );
 
   const arenaId =
-    getNumber(
-      arenaEntity,
-      "id"
-    ) ??
+    getNumber(arenaEntity, "id") ??
     extractIdFromReference(
       arenaReference,
       /Arena\(\{id:(\d+)/
@@ -445,26 +425,24 @@ function getResult(
       "awayGoals"
     ) ?? 0;
 
-  const selectedIsHome =
-    homeTeamId ===
-    selectedTeamId;
-
-  const selectedIsAway =
-    awayTeamId ===
-    selectedTeamId;
-
   let goalsFor: number | null =
     null;
 
   let goalsAgainst: number | null =
     null;
 
-  if (selectedIsHome) {
+  if (
+    homeTeamId ===
+    selectedTeamId
+  ) {
     goalsFor = homeGoals;
     goalsAgainst = awayGoals;
   }
 
-  if (selectedIsAway) {
+  if (
+    awayTeamId ===
+    selectedTeamId
+  ) {
     goalsFor = awayGoals;
     goalsAgainst = homeGoals;
   }
@@ -487,55 +465,6 @@ function getResult(
         "walkover"
       ) ?? false,
   };
-}
-
-function getReferenceText(
-  entity: RecordValue,
-  key: string,
-  responses: RecordValue
-): string | null {
-  const directValue =
-    entity[key];
-
-  const directText =
-    getLocalizedText(
-      directValue
-    );
-
-  if (directText) {
-    return directText;
-  }
-
-  const reference =
-    getHref(entity, key);
-
-  const referencedEntity =
-    getEntity(
-      responses,
-      reference
-    );
-
-  if (!referencedEntity) {
-    return null;
-  }
-
-  const referencedName =
-    referencedEntity.name;
-
-  return (
-    getLocalizedText(
-      referencedName
-    ) ??
-    getString(
-      referencedEntity,
-      "name"
-    ) ??
-    getString(
-      referencedEntity,
-      "title"
-    ) ??
-    null
-  );
 }
 
 function getStatus(
@@ -572,14 +501,14 @@ function getGroup(
 }
 
 function normalizeRoundName(
-  roundName: string | null
+  value: string | null
 ): string | null {
-  if (!roundName) {
+  if (!value) {
     return null;
   }
 
   const lower =
-    roundName.toLowerCase();
+    value.toLowerCase();
 
   if (
     lower.includes("1/4") ||
@@ -602,7 +531,193 @@ function normalizeRoundName(
     return "Final";
   }
 
-  return roundName;
+  return value;
+}
+
+/*
+ * Resolve references such as:
+ *
+ * Match({id:89302742})$roundName
+ * Stage({categoryId:...,stageId:...})$name
+ *
+ * CupManager stores these resolved scalar values as
+ * separate entries in responses.
+ */
+function resolveResponseValue(
+  responses: RecordValue,
+  reference: string | undefined
+): unknown {
+  if (!reference) {
+    return undefined;
+  }
+
+  const item =
+    responses[reference];
+
+  if (!isRecord(item)) {
+    return undefined;
+  }
+
+  return item.entity;
+}
+
+function resolveLocalizedReference(
+  responses: RecordValue,
+  reference: string | undefined
+): string | null {
+  const value =
+    resolveResponseValue(
+      responses,
+      reference
+    );
+
+  return (
+    getLocalizedText(value) ??
+    null
+  );
+}
+
+function getStageName(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): string | null {
+  const stageReference =
+    getHref(
+      matchEntity,
+      "stage"
+    );
+
+  if (!stageReference) {
+    return null;
+  }
+
+  /*
+   * First try a dedicated $name response.
+   */
+  const nameReference =
+    `${stageReference}$name`;
+
+  const resolvedName =
+    resolveLocalizedReference(
+      responses,
+      nameReference
+    );
+
+  if (resolvedName) {
+    return resolvedName;
+  }
+
+  /*
+   * Then inspect the actual Stage entity.
+   */
+  const stageEntity =
+    getEntity(
+      responses,
+      stageReference
+    );
+
+  if (!stageEntity) {
+    return null;
+  }
+
+  const directName =
+    getLocalizedText(
+      stageEntity.name
+    );
+
+  if (directName) {
+    return directName;
+  }
+
+  const stageNameHref =
+    getHref(
+      stageEntity,
+      "name"
+    );
+
+  return resolveLocalizedReference(
+    responses,
+    stageNameHref
+  );
+}
+
+function getRoundName(
+  matchEntity: RecordValue,
+  responses: RecordValue
+): string | null {
+  const directRound =
+    getLocalizedText(
+      matchEntity.roundName
+    );
+
+  if (
+    directRound &&
+    !directRound.includes("$roundName")
+  ) {
+    return directRound;
+  }
+
+  const roundReference =
+    getHref(
+      matchEntity,
+      "roundName"
+    );
+
+  if (roundReference) {
+    const resolved =
+      resolveLocalizedReference(
+        responses,
+        roundReference
+      );
+
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  /*
+   * CupManager can also expose a Round entity.
+   */
+  const roundEntityReference =
+    getHref(
+      matchEntity,
+      "round"
+    );
+
+  const roundEntity =
+    getEntity(
+      responses,
+      roundEntityReference
+    );
+
+  if (roundEntity) {
+    const roundName =
+      getLocalizedText(
+        roundEntity.name
+      );
+
+    if (roundName) {
+      return roundName;
+    }
+
+    const roundNameHref =
+      getHref(
+        roundEntity,
+        "name"
+      );
+
+    const resolved =
+      resolveLocalizedReference(
+        responses,
+        roundNameHref
+      );
+
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
 }
 
 function getCompetitionLabel(
@@ -652,14 +767,14 @@ function getCompetitionLabel(
     prefix = "B";
   }
 
-  const label = [
+  const result = [
     prefix,
     normalizedRound,
   ]
     .filter(Boolean)
     .join(" ");
 
-  return label || null;
+  return result || null;
 }
 
 export async function GET(
@@ -690,6 +805,10 @@ export async function GET(
   const teamId =
     Number(teamIdParam);
 
+  /*
+   * Ask explicitly for round and stage information.
+   * This is important for resolving competition labels.
+   */
   const call =
     `Team({id:${teamId}})` +
     `{matches:[{... on Match:{` +
@@ -700,8 +819,9 @@ export async function GET(
     `nextMatchLoser:{},` +
     `nextMatchWinner:{},` +
     `result:{},` +
+    `round:{name:{}},` +
     `roundName:{},` +
-    `stage:{}` +
+    `stage:{name:{}}` +
     `}}],` +
     `extraMatches:[{matches:[{... on Match:{` +
     `arena:{},` +
@@ -711,8 +831,9 @@ export async function GET(
     `nextMatchLoser:{},` +
     `nextMatchWinner:{},` +
     `result:{},` +
+    `round:{name:{}},` +
     `roundName:{},` +
-    `stage:{}` +
+    `stage:{name:{}}` +
     `}}]}]}`;
 
   const url =
@@ -930,7 +1051,8 @@ export async function GET(
         getBoolean(
           entity,
           "isScheduled"
-        ) ?? true;
+        ) ??
+        true;
 
       const divisionReference =
         getHref(
@@ -947,7 +1069,8 @@ export async function GET(
       const divisionName =
         getLocalizedText(
           divisionEntity?.name
-        ) ?? null;
+        ) ??
+        null;
 
       const group =
         getGroup(
@@ -955,16 +1078,14 @@ export async function GET(
         );
 
       const stageName =
-        getReferenceText(
+        getStageName(
           entity,
-          "stage",
           responses
         );
 
       const roundName =
-        getReferenceText(
+        getRoundName(
           entity,
-          "roundName",
           responses
         );
 
@@ -1005,19 +1126,22 @@ export async function GET(
           getNumber(
             entity,
             "start"
-          ) ?? null,
+          ) ??
+          null,
 
         end:
           getNumber(
             entity,
             "end"
-          ) ?? null,
+          ) ??
+          null,
 
         duration:
           getNumber(
             entity,
             "duration"
-          ) ?? null,
+          ) ??
+          null,
 
         arena:
           getArena(
@@ -1053,13 +1177,15 @@ export async function GET(
           getHref(
             entity,
             "nextMatchWinner"
-          ) ?? null,
+          ) ??
+          null,
 
         nextMatchLoser:
           getHref(
             entity,
             "nextMatchLoser"
-          ) ?? null,
+          ) ??
+          null,
       });
     }
 
@@ -1079,10 +1205,6 @@ export async function GET(
           (b.start ?? 0)
       );
 
-    /*
-     * Confirmed matches are matches in which the selected
-     * favourite team is already assigned as home or away.
-     */
     const confirmedMatches =
       uniqueMatches.filter(
         (match) =>
@@ -1090,10 +1212,6 @@ export async function GET(
           "unknown"
       );
 
-    /*
-     * Qualification matches are unresolved future bracket
-     * positions that the favourite may reach.
-     */
     const possibleMatches =
       uniqueMatches.filter(
         (match) =>
