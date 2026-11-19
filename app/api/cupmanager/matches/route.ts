@@ -253,14 +253,8 @@ function getTeamName(
     getString(name, "clubName") ??
     getString(name, "fullName") ??
     getLocalizedText(name) ??
-    getString(
-      entity,
-      "originalName"
-    ) ??
-    getString(
-      entity,
-      "shortName"
-    ) ??
+    getString(entity, "originalName") ??
+    getString(entity, "shortName") ??
     null
   );
 }
@@ -277,10 +271,7 @@ function getWinnerMatchNumber(
       /^(?:Vinn\.?|Winner(?: of)?(?: match)?)[\s#]*(\d+)$/i
     );
 
-  return (
-    match?.[1] ??
-    null
-  );
+  return match?.[1] ?? null;
 }
 
 function getTeamFromActor(
@@ -486,32 +477,26 @@ function getResult(
       "awayGoals"
     ) ?? 0;
 
-  let goalsFor:
-    number | null = null;
+  let goalsFor: number | null =
+    null;
 
-  let goalsAgainst:
-    number | null = null;
+  let goalsAgainst: number | null =
+    null;
 
   if (
     homeTeamId ===
     selectedTeamId
   ) {
-    goalsFor =
-      homeGoals;
-
-    goalsAgainst =
-      awayGoals;
+    goalsFor = homeGoals;
+    goalsAgainst = awayGoals;
   }
 
   if (
     awayTeamId ===
     selectedTeamId
   ) {
-    goalsFor =
-      awayGoals;
-
-    goalsAgainst =
-      homeGoals;
+    goalsFor = awayGoals;
+    goalsAgainst = homeGoals;
   }
 
   return {
@@ -575,7 +560,9 @@ function normalizeRoundName(
   }
 
   const lower =
-    value.toLowerCase();
+    value
+      .trim()
+      .toLowerCase();
 
   if (
     lower.includes("1/4") ||
@@ -613,9 +600,7 @@ function getRoundName(
       "roundName"
     );
 
-  if (
-    !roundNameReference
-  ) {
+  if (!roundNameReference) {
     return null;
   }
 
@@ -625,9 +610,7 @@ function getRoundName(
       roundNameReference
     );
 
-  if (
-    !roundNameEntity
-  ) {
+  if (!roundNameEntity) {
     return null;
   }
 
@@ -642,9 +625,7 @@ function getRoundName(
       name
     );
 
-  if (
-    resolvedName
-  ) {
+  if (resolvedName) {
     return resolvedName;
   }
 
@@ -667,10 +648,6 @@ function getStageName(
   responses: RecordValue,
   divisionEntity: RecordValue | undefined
 ): string | null {
-  /*
-   * Strategy 1:
-   * Match -> stage -> Stage entity -> name.
-   */
   const matchStageReference =
     getHref(
       matchEntity,
@@ -709,12 +686,15 @@ function getStageName(
           "name"
         );
 
+      const nameResponse =
+        getResponseEntity(
+          responses,
+          nameReference
+        );
+
       const resolvedName =
         getLocalizedText(
-          getResponseEntity(
-            responses,
-            nameReference
-          )
+          nameResponse
         );
 
       if (
@@ -722,15 +702,6 @@ function getStageName(
       ) {
         return resolvedName;
       }
-
-      /*
-       * Some Stage $name responses contain a nested name.
-       */
-      const nameResponse =
-        getResponseEntity(
-          responses,
-          nameReference
-        );
 
       if (
         isRecord(
@@ -751,13 +722,6 @@ function getStageName(
     }
   }
 
-  /*
-   * Strategy 2:
-   * Match -> division -> stage -> name.
-   *
-   * This is useful because the query already requests:
-   * division:{category:{},stage:{name:{}}}
-   */
   const divisionStageReference =
     getHref(
       divisionEntity,
@@ -832,11 +796,6 @@ function getStageName(
     }
   }
 
-  /*
-   * Strategy 3:
-   * CupManager sometimes gives the stage name directly
-   * under division.stage.name as part of the hydrated object.
-   */
   const divisionStage =
     getRecord(
       divisionEntity,
@@ -866,20 +825,8 @@ function getCompetitionLabel(
   stageName: string | null,
   roundName: string | null
 ): string | null {
-  const stageLower =
-    stageName
-      ?.toLowerCase() ??
-    "";
-
-  if (
-    group ||
-    stageLower.includes(
-      "gruppe"
-    )
-  ) {
-    return group
-      ? `Group ${group}`
-      : "Group stage";
+  if (group) {
+    return `Group ${group}`;
   }
 
   const normalizedRound =
@@ -887,7 +834,14 @@ function getCompetitionLabel(
       roundName
     );
 
-  let prefix = "";
+  const stageLower =
+    stageName
+      ?.trim()
+      .toLowerCase() ??
+    "";
+
+  let prefix: string | null =
+    null;
 
   if (
     stageLower.includes(
@@ -911,17 +865,26 @@ function getCompetitionLabel(
     prefix = "B";
   }
 
-  const label = [
-    prefix,
-    normalizedRound,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  if (
+    prefix &&
+    normalizedRound
+  ) {
+    return `${prefix} ${normalizedRound}`;
+  }
 
-  return (
-    label ||
-    null
-  );
+  if (
+    normalizedRound
+  ) {
+    return normalizedRound;
+  }
+
+  if (
+    prefix
+  ) {
+    return prefix;
+  }
+
+  return null;
 }
 
 export async function GET(
@@ -1037,8 +1000,7 @@ export async function GET(
             response.status,
         },
         {
-          status:
-            502,
+          status: 502,
         }
       );
     }
@@ -1479,8 +1441,7 @@ export async function GET(
         teamId,
       },
       {
-        status:
-          500,
+        status: 500,
       }
     );
   }
