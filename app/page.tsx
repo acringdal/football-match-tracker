@@ -94,7 +94,6 @@ type TeamsResponse = {
 
 type MatchesResponse = {
   ok: boolean;
-
   live?: Match[];
   upcoming?: Match[];
   played?: Match[];
@@ -162,21 +161,70 @@ function displayTeamName(
   return team.name ?? fallback;
 }
 
-function groupByDay(matches: Match[]) {
-  const map = new Map<string, Match[]>();
+function getClassLabel(
+  match: Match,
+  favourites: Team[]
+) {
+  const selectedTeamId =
+    match.selectedTeam?.id;
 
-  for (const match of matches) {
-    const day = formatDay(match.start);
-    const existing = map.get(day) ?? [];
-
-    existing.push(match);
-    map.set(day, existing);
+  if (!selectedTeamId) {
+    return null;
   }
 
-  return Array.from(map.entries());
+  const favourite =
+    favourites.find(
+      (team) =>
+        team.id === selectedTeamId
+    );
+
+  if (!favourite) {
+    return null;
+  }
+
+  const source =
+    favourite.categoryName ??
+    favourite.fullName ??
+    "";
+
+  const classMatch =
+    source.match(
+      /\b([JG]\s*\d{2})\b/i
+    );
+
+  if (!classMatch?.[1]) {
+    return null;
+  }
+
+  return classMatch[1]
+    .replace(/\s+/g, "")
+    .toUpperCase();
 }
 
-function ScoreRows({ match }: { match: Match }) {
+function groupByDay(matches: Match[]) {
+  const days = new Map<string, Match[]>();
+
+  for (const match of matches) {
+    const day =
+      formatDay(match.start);
+
+    const existing =
+      days.get(day) ?? [];
+
+    existing.push(match);
+    days.set(day, existing);
+  }
+
+  return Array.from(
+    days.entries()
+  );
+}
+
+function ScoreRows({
+  match,
+}: {
+  match: Match;
+}) {
   if (!match.score) {
     return null;
   }
@@ -204,6 +252,7 @@ function ScoreRows({ match }: { match: Match }) {
           minWidth: 0,
           fontWeight: 700,
           fontSize: "16px",
+          overflowWrap: "anywhere",
         }}
       >
         {homeName}
@@ -215,7 +264,8 @@ function ScoreRows({ match }: { match: Match }) {
           textAlign: "left",
           fontWeight: 800,
           fontSize: "18px",
-          fontVariantNumeric: "tabular-nums",
+          fontVariantNumeric:
+            "tabular-nums",
         }}
       >
         {match.score.home}
@@ -226,6 +276,7 @@ function ScoreRows({ match }: { match: Match }) {
           minWidth: 0,
           fontWeight: 700,
           fontSize: "16px",
+          overflowWrap: "anywhere",
         }}
       >
         {awayName}
@@ -237,7 +288,8 @@ function ScoreRows({ match }: { match: Match }) {
           textAlign: "left",
           fontWeight: 800,
           fontSize: "18px",
-          fontVariantNumeric: "tabular-nums",
+          fontVariantNumeric:
+            "tabular-nums",
         }}
       >
         {match.score.away}
@@ -246,10 +298,42 @@ function ScoreRows({ match }: { match: Match }) {
   );
 }
 
-function MatchMeta({ match }: { match: Match }) {
+function MatchMeta({
+  match,
+  classLabel,
+}: {
+  match: Match;
+  classLabel: string | null;
+}) {
+  const textParts: string[] = [];
+
+  if (classLabel) {
+    textParts.push(classLabel);
+  }
+
   if (
-    !match.matchNumber &&
-    !match.competitionLabel
+    match.competitionLabel &&
+    !match.competitionLabel.includes(
+      "Match("
+    ) &&
+    !match.competitionLabel.includes(
+      "Stage("
+    ) &&
+    !match.competitionLabel.includes(
+      "$"
+    )
+  ) {
+    textParts.push(
+      match.competitionLabel
+    );
+  }
+
+  const hasMatchNumber =
+    Boolean(match.matchNumber);
+
+  if (
+    textParts.length === 0 &&
+    !hasMatchNumber
   ) {
     return null;
   }
@@ -260,26 +344,27 @@ function MatchMeta({ match }: { match: Match }) {
         marginTop: "8px",
         fontSize: "14px",
         color: "#344054",
+        lineHeight: 1.4,
       }}
     >
-      {match.matchNumber && (
-        <span>
-          ⚽ #{match.matchNumber}
-        </span>
-      )}
-
-      {match.matchNumber &&
-        match.competitionLabel && (
-          <span> · </span>
-        )}
-
-      {match.competitionLabel && (
+      {textParts.length > 0 && (
         <span
           style={{
             fontWeight: 600,
           }}
         >
-          {match.competitionLabel}
+          {textParts.join(" · ")}
+        </span>
+      )}
+
+      {textParts.length > 0 &&
+        hasMatchNumber && (
+          <span> · </span>
+        )}
+
+      {hasMatchNumber && (
+        <span>
+          ⚽ #{match.matchNumber}
         </span>
       )}
     </div>
@@ -288,16 +373,19 @@ function MatchMeta({ match }: { match: Match }) {
 
 function MatchCard({
   match,
+  classLabel,
   qualification = false,
 }: {
   match: Match;
+  classLabel: string | null;
   qualification?: boolean;
 }) {
-  const hasScore = Boolean(match.score);
-
   const selectedTeamName =
     match.selectedTeam?.name ??
     "Favourite team";
+
+  const hasScore =
+    Boolean(match.score);
 
   return (
     <div
@@ -326,11 +414,17 @@ function MatchCard({
             >
               🔴 LIVE
             </span>
+
             <span> · </span>
-            <span>{matchTime(match)}</span>
+
+            <span>
+              {matchTime(match)}
+            </span>
           </>
         ) : (
-          <span>{matchTime(match)}</span>
+          <span>
+            {matchTime(match)}
+          </span>
         )}
       </div>
 
@@ -343,15 +437,25 @@ function MatchCard({
             fontWeight: 700,
             fontSize: "16px",
             lineHeight: 1.35,
+            overflowWrap: "anywhere",
           }}
         >
-          {displayTeamName(match.homeTeam)}
+          {displayTeamName(
+            match.homeTeam
+          )}
+
           {" – "}
-          {displayTeamName(match.awayTeam)}
+
+          {displayTeamName(
+            match.awayTeam
+          )}
         </div>
       )}
 
-      <MatchMeta match={match} />
+      <MatchMeta
+        match={match}
+        classLabel={classLabel}
+      />
 
       <div
         style={{
@@ -360,7 +464,9 @@ function MatchCard({
           color: "#667085",
         }}
       >
-        📍 {match.arena?.name ?? "Venue TBD"}
+        📍{" "}
+        {match.arena?.name ??
+          "Venue TBD"}
       </div>
 
       {qualification && (
@@ -372,7 +478,8 @@ function MatchCard({
             fontSize: "13px",
           }}
         >
-          ↓ {selectedTeamName} can reach this match
+          ↓ {selectedTeamName} can
+          reach this match
         </div>
       )}
     </div>
@@ -391,13 +498,19 @@ export default function Home() {
       "live-upcoming"
     );
 
-  const [categories, setCategories] =
+  const [
+    categories,
+    setCategories,
+  ] =
     useState<Category[]>([]);
 
   const [teams, setTeams] =
     useState<Team[]>([]);
 
-  const [favourites, setFavourites] =
+  const [
+    favourites,
+    setFavourites,
+  ] =
     useState<Team[]>([]);
 
   const [
@@ -501,15 +614,16 @@ export default function Home() {
           await fetch(
             "/api/cupmanager/categories",
             {
-              cache:
-                "no-store",
+              cache: "no-store",
               signal:
                 controller.signal,
             }
           );
 
         if (!response.ok) {
-          throw new Error();
+          throw new Error(
+            "Could not load categories"
+          );
         }
 
         const data:
@@ -517,8 +631,7 @@ export default function Home() {
             await response.json();
 
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setCategories(
             Array.isArray(
@@ -539,8 +652,7 @@ export default function Home() {
         }
 
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setError(
             "Could not load Fotballfest categories."
@@ -548,8 +660,7 @@ export default function Home() {
         }
       } finally {
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setCategoriesLoading(
             false
@@ -560,8 +671,9 @@ export default function Home() {
 
     loadCategories();
 
-    return () =>
+    return () => {
       controller.abort();
+    };
   }, []);
 
   const availableAges =
@@ -628,15 +740,16 @@ export default function Home() {
           await fetch(
             `/api/cupmanager/teams?categoryId=${categoryId}`,
             {
-              cache:
-                "no-store",
+              cache: "no-store",
               signal:
                 controller.signal,
             }
           );
 
         if (!response.ok) {
-          throw new Error();
+          throw new Error(
+            "Could not load teams"
+          );
         }
 
         const data:
@@ -644,8 +757,7 @@ export default function Home() {
             await response.json();
 
         if (
-          !controller.signal
-            .aborted &&
+          !controller.signal.aborted &&
           data.categoryId ===
             categoryId
         ) {
@@ -668,8 +780,7 @@ export default function Home() {
         }
 
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setTeams([]);
           setError(
@@ -678,8 +789,7 @@ export default function Home() {
         }
       } finally {
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setTeamsLoading(false);
         }
@@ -688,8 +798,9 @@ export default function Home() {
 
     loadTeams();
 
-    return () =>
+    return () => {
       controller.abort();
+    };
   }, [
     showTeamPicker,
     selectedCategory,
@@ -731,10 +842,10 @@ export default function Home() {
                     }
                   );
 
-                if (
-                  !response.ok
-                ) {
-                  throw new Error();
+                if (!response.ok) {
+                  throw new Error(
+                    "Could not load matches"
+                  );
                 }
 
                 const data:
@@ -743,16 +854,14 @@ export default function Home() {
 
                 return {
                   team,
-                  response:
-                    data,
+                  response: data,
                 };
               }
             )
           );
 
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setTeamMatches(results);
         }
@@ -767,8 +876,7 @@ export default function Home() {
         }
 
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setTeamMatches([]);
           setError(
@@ -777,8 +885,7 @@ export default function Home() {
         }
       } finally {
         if (
-          !controller.signal
-            .aborted
+          !controller.signal.aborted
         ) {
           setMatchesLoading(false);
         }
@@ -787,8 +894,9 @@ export default function Home() {
 
     loadMatches();
 
-    return () =>
+    return () => {
       controller.abort();
+    };
   }, [
     favourites,
     favouritesLoaded,
@@ -971,8 +1079,7 @@ export default function Home() {
       categories
         .filter(
           (category) =>
-            category.gender ===
-            value
+            category.gender === value
         )
         .map(
           (category) =>
@@ -1002,8 +1109,7 @@ export default function Home() {
         if (
           current.some(
             (item) =>
-              item.id ===
-              team.id
+              item.id === team.id
           )
         ) {
           return current;
@@ -1030,8 +1136,7 @@ export default function Home() {
       (current) =>
         current.filter(
           (team) =>
-            team.id !==
-            teamId
+            team.id !== teamId
         )
     );
   }
@@ -1077,6 +1182,9 @@ export default function Home() {
     value: MatchesTab,
     label: string
   ) {
+    const selected =
+      matchesTab === value;
+
     return (
       <button
         type="button"
@@ -1087,15 +1195,15 @@ export default function Home() {
           flex: 1,
           padding: "9px",
           border:
-            matchesTab === value
+            selected
               ? "1px solid #166534"
               : "1px solid #d0d5dd",
           background:
-            matchesTab === value
+            selected
               ? "#ecfdf3"
               : "white",
           color:
-            matchesTab === value
+            selected
               ? "#166534"
               : "#667085",
           fontWeight: 700,
@@ -1111,21 +1219,17 @@ export default function Home() {
     matches: Match[],
     qualification = false
   ) {
-    return groupByDay(
-      matches
-    ).map(
+    return groupByDay(matches).map(
       ([day, dayMatches]) => (
         <section
           key={day}
           style={{
-            marginBottom:
-              "24px",
+            marginBottom: "24px",
           }}
         >
           <div
             style={{
-              marginBottom:
-                "9px",
+              marginBottom: "9px",
               fontSize: "13px",
               fontWeight: 800,
               color: "#475467",
@@ -1141,6 +1245,10 @@ export default function Home() {
               <MatchCard
                 key={match.id}
                 match={match}
+                classLabel={getClassLabel(
+                  match,
+                  favourites
+                )}
                 qualification={
                   qualification
                 }
@@ -1172,8 +1280,7 @@ export default function Home() {
 
       <h1
         style={{
-          margin:
-            "5px 0 16px",
+          margin: "5px 0 16px",
           fontSize: "27px",
         }}
       >
@@ -1207,13 +1314,11 @@ export default function Home() {
       {error && (
         <div
           style={{
-            background:
-              "#fef3f2",
+            background: "#fef3f2",
             color: "#b42318",
             padding: "12px",
             borderRadius: "8px",
-            marginBottom:
-              "16px",
+            marginBottom: "16px",
           }}
         >
           {error}
@@ -1225,8 +1330,7 @@ export default function Home() {
           <div
             style={{
               display: "flex",
-              marginBottom:
-                "18px",
+              marginBottom: "18px",
             }}
           >
             {matchesTabButton(
@@ -1256,51 +1360,37 @@ export default function Home() {
               0 && (
               <div
                 style={{
-                  background:
-                    "white",
-                  borderRadius:
-                    "12px",
-                  padding:
-                    "24px",
-                  textAlign:
-                    "center",
+                  background: "white",
+                  borderRadius: "12px",
+                  padding: "24px",
+                  textAlign: "center",
                 }}
               >
                 <strong>
-                  No favourite
-                  teams yet
+                  No favourite teams yet
                 </strong>
 
                 <p
                   style={{
-                    color:
-                      "#667085",
+                    color: "#667085",
                   }}
                 >
-                  Add a team to
-                  start following
-                  matches.
+                  Add a team to start
+                  following matches.
                 </p>
 
                 <button
                   type="button"
                   onClick={() =>
-                    setTab(
-                      "teams"
-                    )
+                    setTab("teams")
                   }
                   style={{
-                    padding:
-                      "11px 16px",
+                    padding: "11px 16px",
                     border: 0,
-                    borderRadius:
-                      "8px",
-                    background:
-                      "#166534",
-                    color:
-                      "white",
-                    fontWeight:
-                      700,
+                    borderRadius: "8px",
+                    background: "#166534",
+                    color: "white",
+                    fontWeight: 700,
                   }}
                 >
                   Add team
@@ -1309,8 +1399,7 @@ export default function Home() {
             )}
 
           {!matchesLoading &&
-            favourites.length >
-              0 &&
+            favourites.length > 0 &&
             matchesTab ===
               "live-upcoming" &&
             liveAndUpcoming.length ===
@@ -1320,8 +1409,8 @@ export default function Home() {
                   color: "#667085",
                 }}
               >
-                No live or
-                upcoming matches.
+                No live or upcoming
+                matches.
               </p>
             )}
 
@@ -1333,8 +1422,7 @@ export default function Home() {
             )}
 
           {!matchesLoading &&
-            favourites.length >
-              0 &&
+            favourites.length > 0 &&
             matchesTab ===
               "played" &&
             playedMatches.length ===
@@ -1365,20 +1453,15 @@ export default function Home() {
           0 ? (
             <div
               style={{
-                background:
-                  "white",
-                borderRadius:
-                  "12px",
-                padding:
-                  "24px",
-                textAlign:
-                  "center",
-                color:
-                  "#667085",
+                background: "white",
+                borderRadius: "12px",
+                padding: "24px",
+                textAlign: "center",
+                color: "#667085",
               }}
             >
-              No qualification
-              paths to show yet.
+              No qualification paths
+              to show yet.
             </div>
           ) : (
             renderMatchDays(
@@ -1405,46 +1488,39 @@ export default function Home() {
               width: "100%",
               padding: "13px",
               border: 0,
-              borderRadius:
-                "10px",
-              background:
-                "#166534",
+              borderRadius: "10px",
+              background: "#166534",
               color: "white",
-              fontSize:
-                "15px",
+              fontSize: "15px",
               fontWeight: 700,
+              cursor: "pointer",
             }}
           >
-            + Add favourite
-            team
+            + Add favourite team
           </button>
 
           <div
             style={{
-              marginTop:
-                "18px",
+              marginTop: "18px",
             }}
           >
             {!favouritesLoaded ? (
               <p
                 style={{
-                  color:
-                    "#667085",
+                  color: "#667085",
                 }}
               >
-                Loading
-                favourites...
+                Loading favourites...
               </p>
             ) : favourites.length ===
               0 ? (
               <p
                 style={{
-                  color:
-                    "#667085",
+                  color: "#667085",
                 }}
               >
-                No favourite
-                teams yet.
+                No favourite teams
+                yet.
               </p>
             ) : (
               favourites.map(
@@ -1452,20 +1528,14 @@ export default function Home() {
                   <div
                     key={team.id}
                     style={{
-                      background:
-                        "white",
-                      padding:
-                        "14px",
-                      borderRadius:
-                        "10px",
-                      marginBottom:
-                        "9px",
-                      display:
-                        "flex",
+                      background: "white",
+                      padding: "14px",
+                      borderRadius: "10px",
+                      marginBottom: "9px",
+                      display: "flex",
                       justifyContent:
                         "space-between",
-                      gap:
-                        "12px",
+                      gap: "12px",
                     }}
                   >
                     <div>
@@ -1476,12 +1546,9 @@ export default function Home() {
                       {team.categoryName && (
                         <div
                           style={{
-                            fontSize:
-                              "13px",
-                            color:
-                              "#667085",
-                            marginTop:
-                              "3px",
+                            fontSize: "13px",
+                            color: "#667085",
+                            marginTop: "3px",
                           }}
                         >
                           {
@@ -1502,8 +1569,8 @@ export default function Home() {
                         border: 0,
                         background:
                           "transparent",
-                        color:
-                          "#b42318",
+                        color: "#b42318",
+                        cursor: "pointer",
                       }}
                     >
                       Remove
@@ -1532,6 +1599,7 @@ export default function Home() {
               display: "flex",
               justifyContent:
                 "space-between",
+              alignItems: "center",
             }}
           >
             <strong>
@@ -1540,6 +1608,7 @@ export default function Home() {
 
             <button
               type="button"
+              aria-label="Close team selector"
               onClick={() =>
                 setShowTeamPicker(
                   false
@@ -1549,8 +1618,8 @@ export default function Home() {
                 border: 0,
                 background:
                   "transparent",
-                fontSize:
-                  "22px",
+                fontSize: "22px",
+                cursor: "pointer",
               }}
             >
               ×
@@ -1560,19 +1629,16 @@ export default function Home() {
           {categoriesLoading ? (
             <p
               style={{
-                color:
-                  "#667085",
+                color: "#667085",
               }}
             >
-              Loading
-              categories...
+              Loading categories...
             </p>
           ) : (
             <>
               <div
                 style={{
-                  marginTop:
-                    "18px",
+                  marginTop: "18px",
                 }}
               >
                 <strong>
@@ -1581,11 +1647,9 @@ export default function Home() {
 
                 <div
                   style={{
-                    display:
-                      "flex",
+                    display: "flex",
                     gap: "8px",
-                    marginTop:
-                      "7px",
+                    marginTop: "7px",
                   }}
                 >
                   {(
@@ -1596,9 +1660,7 @@ export default function Home() {
                   ).map(
                     (value) => (
                       <button
-                        key={
-                          value
-                        }
+                        key={value}
                         type="button"
                         onClick={() =>
                           handleGenderChange(
@@ -1608,18 +1670,16 @@ export default function Home() {
                         style={{
                           flex: 1,
                           padding: "10px",
-                          borderRadius:
-                            "8px",
+                          borderRadius: "8px",
                           border:
-                            gender ===
-                            value
+                            gender === value
                               ? "2px solid #166534"
                               : "1px solid #d0d5dd",
                           background:
-                            gender ===
-                            value
+                            gender === value
                               ? "#ecfdf3"
                               : "white",
+                          cursor: "pointer",
                         }}
                       >
                         {value}
@@ -1631,8 +1691,7 @@ export default function Home() {
 
               <div
                 style={{
-                  marginTop:
-                    "18px",
+                  marginTop: "18px",
                 }}
               >
                 <strong>
@@ -1641,52 +1700,36 @@ export default function Home() {
 
                 <div
                   style={{
-                    display:
-                      "flex",
+                    display: "flex",
                     gap: "8px",
-                    marginTop:
-                      "7px",
-                    flexWrap:
-                      "wrap",
+                    marginTop: "7px",
+                    flexWrap: "wrap",
                   }}
                 >
                   {availableAges.map(
                     (value) => (
                       <button
-                        key={
-                          value
-                        }
+                        key={value}
                         type="button"
                         onClick={() => {
-                          setAge(
-                            value
-                          );
-                          setTeams(
-                            []
-                          );
-                          setSearch(
-                            ""
-                          );
-                          setError(
-                            ""
-                          );
+                          setAge(value);
+                          setTeams([]);
+                          setSearch("");
+                          setError("");
                         }}
                         style={{
-                          minWidth:
-                            "58px",
+                          minWidth: "58px",
                           padding: "10px",
-                          borderRadius:
-                            "8px",
+                          borderRadius: "8px",
                           border:
-                            age ===
-                            value
+                            age === value
                               ? "2px solid #166534"
                               : "1px solid #d0d5dd",
                           background:
-                            age ===
-                            value
+                            age === value
                               ? "#ecfdf3"
                               : "white",
+                          cursor: "pointer",
                         }}
                       >
                         {value}
@@ -1698,8 +1741,7 @@ export default function Home() {
 
               <div
                 style={{
-                  marginTop:
-                    "18px",
+                  marginTop: "18px",
                 }}
               >
                 <strong>
@@ -1709,12 +1751,9 @@ export default function Home() {
                 {selectedCategory && (
                   <div
                     style={{
-                      fontSize:
-                        "12px",
-                      color:
-                        "#667085",
-                      marginTop:
-                        "3px",
+                      fontSize: "12px",
+                      color: "#667085",
+                      marginTop: "3px",
                     }}
                   >
                     {
@@ -1725,12 +1764,9 @@ export default function Home() {
 
                 <input
                   value={search}
-                  onChange={(
-                    event
-                  ) =>
+                  onChange={(event) =>
                     setSearch(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="Search team..."
@@ -1743,16 +1779,12 @@ export default function Home() {
                     width: "100%",
                     boxSizing:
                       "border-box",
-                    padding:
-                      "11px",
-                    marginTop:
-                      "8px",
-                    borderRadius:
-                      "8px",
+                    padding: "11px",
+                    marginTop: "8px",
+                    borderRadius: "8px",
                     border:
                       "1px solid #d0d5dd",
-                    fontSize:
-                      "16px",
+                    fontSize: "16px",
                     background:
                       teamsLoading ||
                       !selectedCategory
@@ -1763,27 +1795,22 @@ export default function Home() {
 
                 <div
                   style={{
-                    marginTop:
-                      "8px",
+                    marginTop: "8px",
                   }}
                 >
                   {teamsLoading ? (
                     <p
                       style={{
-                        color:
-                          "#667085",
+                        color: "#667085",
                       }}
                     >
-                      Loading
-                      teams...
+                      Loading teams...
                     </p>
                   ) : (
                     filteredTeams.map(
                       (team) => (
                         <button
-                          key={
-                            team.id
-                          }
+                          key={team.id}
                           type="button"
                           onClick={() =>
                             addFavourite(
@@ -1791,34 +1818,26 @@ export default function Home() {
                             )
                           }
                           style={{
-                            display:
-                              "block",
-                            width:
-                              "100%",
-                            textAlign:
-                              "left",
-                            padding:
-                              "11px 3px",
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "11px 3px",
                             border: 0,
                             borderBottom:
                               "1px solid #eaecf0",
-                            background:
-                              "white",
+                            background: "white",
+                            cursor: "pointer",
                           }}
                         >
                           <strong>
-                            {
-                              team.name
-                            }
+                            {team.name}
                           </strong>
 
                           {team.categoryName && (
                             <div
                               style={{
-                                fontSize:
-                                  "12px",
-                                color:
-                                  "#667085",
+                                fontSize: "12px",
+                                color: "#667085",
                               }}
                             >
                               {
@@ -1837,12 +1856,10 @@ export default function Home() {
                       0 && (
                       <p
                         style={{
-                          color:
-                            "#667085",
+                          color: "#667085",
                         }}
                       >
-                        No matching
-                        teams.
+                        No matching teams.
                       </p>
                     )}
                 </div>
