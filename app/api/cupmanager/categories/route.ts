@@ -31,81 +31,141 @@ type Category = {
 
 export async function GET() {
   try {
-    const response = await fetch(CUPMANAGER_URL, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "Mozilla/5.0",
-        Referer: "https://fotballfest.cupmanager.net/",
-      },
-      cache: "no-store",
-    });
+    const response = await fetch(
+      CUPMANAGER_URL,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0",
+          Referer:
+            "https://fotballfest.cupmanager.net/",
+        },
+        cache: "no-store",
+      }
+    );
 
     const body = await response.text();
 
     if (!response.ok) {
       return NextResponse.json(
         {
-          error: "CupManager request failed",
-          cupManagerStatus: response.status,
+          error:
+            "CupManager request failed",
+          cupManagerStatus:
+            response.status,
         },
-        { status: 502 }
+        {
+          status: 502,
+        }
       );
     }
 
-    const data = JSON.parse(body) as CupManagerResponse;
+    const data =
+      JSON.parse(
+        body
+      ) as CupManagerResponse;
 
-    const responses = data.responses ?? {};
+    const responses =
+      data.responses ?? {};
 
-    const categories: Category[] = Object.values(responses)
-      .map((item) => item.entity)
-      .filter(
-        (entity): entity is Required<
-          Pick<
-            CategoryEntity,
-            "__typename" | "id" | "name" | "shortName" | "gender" | "age"
-          >
-        > =>
-          entity?.__typename === "Category" &&
-          typeof entity.id === "number" &&
-          typeof entity.name === "string" &&
-          typeof entity.shortName === "string" &&
-          typeof entity.gender === "string" &&
-          typeof entity.age === "number"
-      )
-      .map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        shortName: entity.shortName,
-        gender:
-          entity.gender === "women"
-            ? ("Girls" as const)
-            : ("Boys" as const),
-        age: entity.age,
-      }));
+    const categories: Category[] =
+      Object.values(responses)
+        .map(
+          (item) =>
+            item.entity
+        )
+        .filter(
+          (
+            entity
+          ): entity is Required<
+            Pick<
+              CategoryEntity,
+              | "__typename"
+              | "id"
+              | "name"
+              | "shortName"
+              | "gender"
+              | "age"
+            >
+          > =>
+            entity?.__typename ===
+              "Category" &&
+            typeof entity.id ===
+              "number" &&
+            typeof entity.name ===
+              "string" &&
+            typeof entity.shortName ===
+              "string" &&
+            typeof entity.gender ===
+              "string" &&
+            typeof entity.age ===
+              "number"
+        )
+        .map((entity) => ({
+          id: entity.id,
+          name: entity.name,
+          shortName:
+            entity.shortName,
 
-    const uniqueCategories = Array.from(
-      new Map(
-        categories.map((category) => [category.id, category])
-      ).values()
-    ).sort((a, b) => {
-      if (a.gender !== b.gender) {
-        return a.gender.localeCompare(b.gender);
-      }
+          gender:
+            entity.gender ===
+            "women"
+              ? ("Girls" as const)
+              : ("Boys" as const),
 
-      return a.age - b.age;
-    });
+          age: entity.age,
+        }));
 
-    const ages = Array.from(
-      new Set(uniqueCategories.map((category) => category.age))
-    ).sort((a, b) => a - b);
+    const uniqueCategories =
+      Array.from(
+        new Map(
+          categories.map(
+            (category) => [
+              category.id,
+              category,
+            ]
+          )
+        ).values()
+      ).sort((a, b) => {
+        if (
+          a.gender !== b.gender
+        ) {
+          return a.gender.localeCompare(
+            b.gender
+          );
+        }
+
+        return a.age - b.age;
+      });
+
+    const ages =
+      Array.from(
+        new Set(
+          uniqueCategories.map(
+            (category) =>
+              category.age
+          )
+        )
+      ).sort(
+        (a, b) => a - b
+      );
 
     return NextResponse.json({
       ok: true,
-      tournament: "Fotballfest 2026",
-      tournamentId: 75678338,
-      count: uniqueCategories.length,
+
+      tournament:
+        "Fotballfest 2026",
+
+      tournamentId:
+        75678338,
+
+      count:
+        uniqueCategories.length,
+
       ages,
-      categories: uniqueCategories,
+
+      categories:
+        uniqueCategories,
     });
   } catch (error) {
     return NextResponse.json(
@@ -115,7 +175,9 @@ export async function GET() {
             ? error.message
             : "Unknown CupManager error",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
