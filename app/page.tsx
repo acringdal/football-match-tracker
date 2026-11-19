@@ -1395,7 +1395,7 @@ export default function Home() {
                 ...current,
 
                 [key]: {
-                  : false,
+                  loading: false,
                   data,
                 },
               })
@@ -1420,7 +1420,7 @@ export default function Home() {
               (current) => ({
                 ...current,
 
-                {
+                [key]: {
                   loading: false,
                   data: null,
                 },
