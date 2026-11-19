@@ -104,9 +104,38 @@ type MatchesResponse = {
   possible?: Match[];
 };
 
+type WeatherResponse = {
+  ok: boolean;
+  available: boolean;
+  provider?: string;
+  locationId?: number;
+  venue?: string;
+
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+
+  requestedTime?: number;
+  forecastTime?: string | null;
+
+  temperature?: number | null;
+  windSpeed?: number | null;
+  precipitation?: number | null;
+
+  symbolCode?: string | null;
+  emoji?: string | null;
+  reason?: string;
+};
+
 type TeamMatches = {
   team: Team;
   response: MatchesResponse;
+};
+
+type WeatherState = {
+  loading: boolean;
+  data: WeatherResponse | null;
 };
 
 const FAVOURITES_STORAGE_KEY =
@@ -193,8 +222,7 @@ function withClassLabel(
     return [];
   }
 
-  const classLabel =
-    getTeamClass(team);
+  const classLabel = getTeamClass(team);
 
   return matches.map((match) => ({
     ...match,
@@ -225,9 +253,7 @@ function groupByDay(
     >();
 
   for (const match of matches) {
-    const day =
-      formatDay(match.start);
-
+    const day = formatDay(match.start);
     const existing =
       days.get(day) ?? [];
 
@@ -235,9 +261,7 @@ function groupByDay(
     days.set(day, existing);
   }
 
-  return Array.from(
-    days.entries()
-  );
+  return Array.from(days.entries());
 }
 
 function safeCompetitionLabel(
@@ -256,6 +280,122 @@ function safeCompetitionLabel(
   }
 
   return value;
+}
+
+function weatherKey(match: Match) {
+  const locationId =
+    match.arena?.locationId;
+
+  const start =
+    match.start;
+
+  if (
+    typeof locationId !== "number" ||
+    typeof start !== "number"
+  ) {
+    return null;
+  }
+
+  return `${locationId}:${start}`;
+}
+
+function weatherEmoji(
+  symbolCode: string | null | undefined,
+  fallback: string | null | undefined
+) {
+  if (!symbolCode) {
+    return fallback ?? "🌤️";
+  }
+
+  const symbol =
+    symbolCode.toLowerCase();
+
+  if (symbol.includes("thunder")) {
+    return "⛈️";
+  }
+
+  if (
+    symbol.includes("snow") ||
+    symbol.includes("sleet")
+  ) {
+    return "🌨️";
+  }
+
+  if (symbol.includes("rain")) {
+    return "🌧️";
+  }
+
+  if (symbol.includes("fog")) {
+    return "🌫️";
+  }
+
+  if (symbol.includes("clearsky")) {
+    return symbol.includes("_night")
+      ? "🌙"
+      : "☀️";
+  }
+
+  if (symbol.includes("partlycloudy")) {
+    return symbol.includes("_night")
+      ? "🌙"
+      : "⛅";
+  }
+
+  if (symbol.includes("fair")) {
+    return symbol.includes("_night")
+      ? "🌙"
+      : "🌤️";
+  }
+
+  if (symbol.includes("cloudy")) {
+    return "☁️";
+  }
+
+  return fallback ?? "🌤️";
+}
+
+function formatTemperature(
+  value: number | null | undefined
+) {
+  if (typeof value !== "number") {
+    return null;
+  }
+
+  return `${Math.round(value)}°`;
+}
+
+function formatWind(
+  value: number | null | undefined
+) {
+  if (typeof value !== "number") {
+    return null;
+  }
+
+  return `${Math.round(value)} m/s`;
+}
+
+function googleMapsUrl(
+  weather: WeatherResponse | null
+) {
+  const latitude =
+    weather?.coordinates?.latitude;
+
+  const longitude =
+    weather?.coordinates?.longitude;
+
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number"
+  ) {
+    return null;
+  }
+
+  return (
+    "https://www.google.com/maps/search/?api=1" +
+    `&query=${encodeURIComponent(
+      `${latitude},${longitude}`
+    )}`
+  );
 }
 
 function ScoreRows({
@@ -340,7 +480,7 @@ function MatchMeta({
       match.competitionLabel
     );
 
-  const primaryParts = [
+  const parts = [
     match.classLabel,
     competition,
   ].filter(
@@ -349,7 +489,7 @@ function MatchMeta({
   );
 
   if (
-    primaryParts.length === 0 &&
+    parts.length === 0 &&
     !match.matchNumber
   ) {
     return null;
@@ -361,26 +501,23 @@ function MatchMeta({
         marginTop: "8px",
         fontSize: "14px",
         color: "#344054",
+        fontWeight: 400,
         lineHeight: 1.4,
       }}
     >
-      {primaryParts.length > 0 && (
-        <strong>
-          {primaryParts.join(" · ")}
-        </strong>
+      {parts.length > 0 && (
+        <span>
+          {parts.join(" · ")}
+        </span>
       )}
 
-      {primaryParts.length > 0 &&
+      {parts.length > 0 &&
         match.matchNumber && (
           <span> · </span>
         )}
 
       {match.matchNumber && (
-        <span
-          style={{
-            fontWeight: 400,
-          }}
-        >
+        <span>
           ⚽ #{match.matchNumber}
         </span>
       )}
@@ -388,12 +525,128 @@ function MatchMeta({
   );
 }
 
-function MatchCard({
+function VenueWeatherLine({
   match,
-  qualification = false,
+  weatherState,
+  showWeather,
 }: {
   match: DisplayMatch;
+  weatherState:
+    WeatherState | undefined;
+  showWeather: boolean;
+}) {
+  const venueName =
+    match.arena?.name ??
+    "Venue TBD";
+
+  const weather =
+    weatherState?.data ?? null;
+
+  const mapUrl =
+    googleMapsUrl(weather);
+
+  const weatherParts: string[] = [];
+
+  if (
+    showWeather &&
+    weather?.available === true
+  ) {
+    const icon =
+      weatherEmoji(
+        weather.symbolCode,
+        weather.emoji
+      );
+
+    const temperature =
+      formatTemperature(
+        weather.temperature
+      );
+
+    const wind =
+      formatWind(
+        weather.windSpeed
+      );
+
+    weatherParts.push(icon);
+
+    if (temperature) {
+      weatherParts.push(temperature);
+    }
+
+    if (wind) {
+      weatherParts.push(wind);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: "5px",
+        fontSize: "14px",
+        color: "#667085",
+        fontWeight: 400,
+        lineHeight: 1.4,
+      }}
+    >
+      {mapUrl ? (
+        <a
+          href={mapUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${venueName} in Google Maps`}
+          style={{
+            color: "inherit",
+            textDecoration: "none",
+            fontWeight: 400,
+          }}
+        >
+          📍 {venueName}
+        </a>
+      ) : (
+        <span>
+          📍 {venueName}
+        </span>
+      )}
+
+      {weatherParts.length > 0 && (
+        <>
+          <span> · </span>
+
+          <span>
+            {weatherParts.join(" · ")}
+          </span>
+        </>
+      )}
+
+      {showWeather &&
+        weatherState?.loading && (
+          <>
+            <span> · </span>
+
+            <span
+              style={{
+                color: "#98a2b3",
+              }}
+            >
+              Weather…
+            </span>
+          </>
+        )}
+    </div>
+  );
+}
+
+function MatchCard({
+  match,
+  weatherState,
+  qualification = false,
+  showWeather = false,
+}: {
+  match: DisplayMatch;
+  weatherState?:
+    WeatherState;
   qualification?: boolean;
+  showWeather?: boolean;
 }) {
   const selectedTeamName =
     match.selectedTeam?.name ??
@@ -466,17 +719,11 @@ function MatchCard({
 
       <MatchMeta match={match} />
 
-      <div
-        style={{
-          marginTop: "5px",
-          fontSize: "14px",
-          color: "#667085",
-        }}
-      >
-        📍{" "}
-        {match.arena?.name ??
-          "Venue TBD"}
-      </div>
+      <VenueWeatherLine
+        match={match}
+        weatherState={weatherState}
+        showWeather={showWeather}
+      />
 
       {qualification && (
         <div
@@ -532,6 +779,14 @@ export default function Home() {
     setTeamMatches,
   ] =
     useState<TeamMatches[]>([]);
+
+  const [
+    weatherByKey,
+    setWeatherByKey,
+  ] =
+    useState<
+      Record<string, WeatherState>
+    >({});
 
   const [
     showTeamPicker,
@@ -651,8 +906,10 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
@@ -775,8 +1032,10 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
@@ -869,8 +1128,10 @@ export default function Home() {
         }
       } catch (error) {
         if (
-          error instanceof DOMException &&
-          error.name === "AbortError"
+          error instanceof
+            DOMException &&
+          error.name ===
+            "AbortError"
         ) {
           return;
         }
@@ -1017,6 +1278,158 @@ export default function Home() {
           (b.start ?? 0)
       );
     }, [teamMatches]);
+
+  const weatherMatches =
+    useMemo(() => {
+      return uniqueMatches([
+        ...liveAndUpcoming,
+        ...qualificationMatches,
+      ]);
+    }, [
+      liveAndUpcoming,
+      qualificationMatches,
+    ]);
+
+  useEffect(() => {
+    const controller =
+      new AbortController();
+
+    const missingMatches =
+      weatherMatches.filter(
+        (match) => {
+          const key =
+            weatherKey(match);
+
+          if (!key) {
+            return false;
+          }
+
+          return !weatherByKey[key];
+        }
+      );
+
+    if (
+      missingMatches.length === 0
+    ) {
+      return;
+    }
+
+    for (
+      const match of missingMatches
+    ) {
+      const key =
+        weatherKey(match);
+
+      if (!key) {
+        continue;
+      }
+
+      setWeatherByKey(
+        (current) => ({
+          ...current,
+          {
+            loading: true,
+            data: null,
+          },
+        })
+      );
+    }
+
+    async function loadWeather() {
+      await Promise.all(
+        missingMatches.map(
+          async (match) => {
+            const key =
+              weatherKey(match);
+
+            const locationId =
+              match.arena?.locationId;
+
+            const start =
+              match.start;
+
+            if (
+              !key ||
+              typeof locationId !==
+                "number" ||
+              typeof start !==
+                "number"
+            ) {
+              return;
+            }
+
+            try {
+              const response =
+                await fetch(
+                  `/api/weather?locationId=${locationId}&time=${start}`,
+                  {
+                    cache: "no-store",
+                    signal:
+                      controller.signal,
+                  }
+                );
+
+              if (!response.ok) {
+                throw new Error(
+                  "Weather unavailable"
+                );
+              }
+
+              const data:
+                WeatherResponse =
+                  await response.json();
+
+              if (
+                !controller.signal.aborted
+              ) {
+                setWeatherByKey(
+                  (current) => ({
+                    ...current,
+                    {
+                      loading: false,
+                      data,
+                    },
+                  })
+                );
+              }
+            } catch (error) {
+              if (
+                error instanceof
+                  DOMException &&
+                error.name ===
+                  "AbortError"
+              ) {
+                return;
+              }
+
+              if (
+                !controller.signal.aborted
+              ) {
+                setWeatherByKey(
+                  (current) => ({
+                    ...current,
+                    {
+                      loading: false,
+                      data: null,
+                    },
+                  })
+                );
+              }
+            }
+          }
+        )
+      );
+    }
+
+    loadWeather();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    weatherMatches,
+    weatherByKey,
+  ]);
 
   function handleGenderChange(
     value: Gender
@@ -1168,7 +1581,10 @@ export default function Home() {
 
   function renderMatchDays(
     matches: DisplayMatch[],
-    qualification = false
+    options?: {
+      qualification?: boolean;
+      showWeather?: boolean;
+    }
   ) {
     return groupByDay(matches).map(
       ([day, dayMatches]) => (
@@ -1192,15 +1608,34 @@ export default function Home() {
           </div>
 
           {dayMatches.map(
-            (match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                qualification={
-                  qualification
-                }
-              />
-            )
+            (match) => {
+              const key =
+                weatherKey(match);
+
+              return (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  qualification={
+                    options
+                      ?.qualification ??
+                    false
+                  }
+                  showWeather={
+                    options
+                      ?.showWeather ??
+                    false
+                  }
+                  weatherState={
+                    key
+                      ? weatherByKey[
+                          key
+                        ]
+                      : undefined
+                  }
+                />
+              );
+            }
           )}
         </section>
       )
@@ -1303,7 +1738,8 @@ export default function Home() {
 
           {!matchesLoading &&
             favouritesLoaded &&
-            favourites.length === 0 && (
+            favourites.length ===
+              0 && (
               <div
                 style={{
                   background: "white",
@@ -1331,7 +1767,8 @@ export default function Home() {
                     setTab("teams")
                   }
                   style={{
-                    padding: "11px 16px",
+                    padding:
+                      "11px 16px",
                     border: 0,
                     borderRadius: "8px",
                     background: "#166534",
@@ -1349,7 +1786,8 @@ export default function Home() {
             favourites.length > 0 &&
             matchesTab ===
               "live-upcoming" &&
-            liveAndUpcoming.length === 0 && (
+            liveAndUpcoming.length ===
+              0 && (
               <p
                 style={{
                   color: "#667085",
@@ -1364,14 +1802,17 @@ export default function Home() {
             matchesTab ===
               "live-upcoming" &&
             renderMatchDays(
-              liveAndUpcoming
+              liveAndUpcoming,
+              {
+                showWeather: true,
+              }
             )}
 
           {!matchesLoading &&
             favourites.length > 0 &&
-            matchesTab ===
-              "played" &&
-            playedMatches.length === 0 && (
+            matchesTab === "played" &&
+            playedMatches.length ===
+              0 && (
               <p
                 style={{
                   color: "#667085",
@@ -1383,17 +1824,21 @@ export default function Home() {
             )}
 
           {!matchesLoading &&
-            matchesTab ===
-              "played" &&
+            matchesTab === "played" &&
             renderMatchDays(
-              playedMatches
+              playedMatches,
+              {
+                showWeather: false,
+              }
             )}
         </>
       )}
 
-      {tab === "qualification" && (
+      {tab ===
+        "qualification" && (
         <>
-          {qualificationMatches.length === 0 ? (
+          {qualificationMatches.length ===
+          0 ? (
             <div
               style={{
                 background: "white",
@@ -1409,7 +1854,10 @@ export default function Home() {
           ) : (
             renderMatchDays(
               qualificationMatches,
-              true
+              {
+                qualification: true,
+                showWeather: true,
+              }
             )
           )}
         </>
@@ -1423,9 +1871,7 @@ export default function Home() {
               setSearch("");
               setTeams([]);
               setError("");
-              setShowTeamPicker(
-                true
-              );
+              setShowTeamPicker(true);
             }}
             style={{
               width: "100%",
@@ -1553,9 +1999,7 @@ export default function Home() {
               type="button"
               aria-label="Close team selector"
               onClick={() =>
-                setShowTeamPicker(
-                  false
-                )
+                setShowTeamPicker(false)
               }
               style={{
                 border: 0,
@@ -1637,9 +2081,7 @@ export default function Home() {
                   marginTop: "18px",
                 }}
               >
-                <strong>
-                  Age
-                </strong>
+                <strong>Age</strong>
 
                 <div
                   style={{
@@ -1687,9 +2129,7 @@ export default function Home() {
                   marginTop: "18px",
                 }}
               >
-                <strong>
-                  Team
-                </strong>
+                <strong>Team</strong>
 
                 {selectedCategory && (
                   <div
